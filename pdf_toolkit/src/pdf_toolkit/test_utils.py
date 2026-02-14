@@ -10,9 +10,9 @@ import sys
 from pathlib import Path
 import unittest
 
-# Allow tests to import from src/ without installing the package.
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+# Add the repository src/ directory so tests run from a fresh checkout.
+SRC_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SRC_DIR))
 
 from pdf_toolkit.utils import UserError, parse_page_ranges, parse_page_spec, validate_degrees
 

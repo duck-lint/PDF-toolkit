@@ -13,9 +13,9 @@ import unittest
 
 from PIL import Image, ImageDraw
 
-# Allow tests to import from src/ without installing the package.
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "src"))
+# Add the repository src/ directory so tests run from a fresh checkout.
+SRC_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SRC_DIR))
 
 from pdf_toolkit.page_images import detect_gutter_x, find_crop_bbox, split_spread_image
 
