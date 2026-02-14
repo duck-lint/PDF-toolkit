@@ -122,6 +122,17 @@ Never split (crop-only):
 python -m pdf_toolkit page-images --in_dir "out\pages" --out_dir "out\pages_single" --mode crop
 ```
 
+Optional printed-page number extraction (tesseract CLI in `PATH`):
+
+```powershell
+python -m pdf_toolkit page-images --in_dir "out\pages" --out_dir "out\pages_single" --mode auto --extract_page_numbers --page_num_debug
+```
+
+Notes:
+- `--extract_page_numbers` is optional. This project does not require `pytesseract`.
+- The feature uses the `tesseract` executable via subprocess.
+- If `tesseract` is unavailable, processing still succeeds and manifest outputs include `printed_page: null` with `reason: "no_tesseract"`.
+
 Recommended pipeline:
 `render -> page-images -> ocr-obsidian`
 
@@ -138,6 +149,19 @@ Each command writes a JSON manifest describing:
 - Inputs, outputs, options
 - Actions taken (written, skipped, dry-run)
 - Timestamps
+
+When `page-images` runs with `--extract_page_numbers`, each action output includes OCR metadata:
+
+```json
+{
+  "path": "out/pages_single/book_p0001_R.png",
+  "printed_page": 123,
+  "corner": "right",
+  "raw_left": "",
+  "raw_right": "123",
+  "reason": null
+}
+```
 
 By default the manifest is written to:
 - Render: `out_dir\manifest.json`
