@@ -7,6 +7,7 @@ Features:
 - Render PDF pages to PNGs (PyMuPDF)
 - Split a PDF into multiple PDFs
 - Rotate PDF pages or rotate PNGs (Pillow)
+- Split spread scans into single-page images and crop page bounds (Pillow)
 - Safe defaults with `--dry-run` and `--overwrite`
 - JSON manifest written for each command
 
@@ -101,6 +102,29 @@ In-place (overwrites files):
 python -m pdf_toolkit rotate images --in_dir "out\pages" --glob "*.png" --degrees 90 --out_dir "out\pages" --inplace --overwrite
 ```
 
+### Page-images (split spreads + crop)
+
+Auto mode (split if wide enough, otherwise crop-only):
+
+```powershell
+python -m pdf_toolkit page-images --in_dir "out\pages" --out_dir "out\pages_single" --glob "*.png" --mode auto --debug
+```
+
+Always split:
+
+```powershell
+python -m pdf_toolkit page-images --in_dir "out\pages" --out_dir "out\pages_single" --mode split --overwrite
+```
+
+Never split (crop-only):
+
+```powershell
+python -m pdf_toolkit page-images --in_dir "out\pages" --out_dir "out\pages_single" --mode crop
+```
+
+Recommended pipeline:
+`render -> page-images -> ocr-obsidian`
+
 ## Page selection format
 
 Pages are 1-based for user input:
@@ -120,6 +144,7 @@ By default the manifest is written to:
 - Split: `out_dir\manifest.json`
 - Rotate PDF: `out_pdf` folder\manifest.json
 - Rotate images: `out_dir\manifest.json`
+- Page-images: `out_dir\manifest.json`
 
 `--dry-run` skips writing the manifest (it is treated like an output file).
 
@@ -128,5 +153,5 @@ By default the manifest is written to:
 Run the minimal unit tests:
 
 ```powershell
-python -m unittest discover -s tests
+python -m unittest discover -s src/pdf_toolkit -p "test_*.py"
 ```
