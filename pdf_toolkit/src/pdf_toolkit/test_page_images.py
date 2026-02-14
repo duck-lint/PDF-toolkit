@@ -7,17 +7,26 @@ require filesystem fixtures.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 # Add the repository src/ directory so tests run from a fresh checkout.
 SRC_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SRC_DIR))
 
-from pdf_toolkit.page_images import detect_gutter_x, find_crop_bbox, split_spread_image
+from pdf_toolkit.page_images import (
+    _page_number_crop_boxes,
+    detect_gutter_x,
+    extract_printed_page_number,
+    find_crop_bbox,
+    split_spread_image,
+    which_tesseract,
+)
 
 
 def _make_synthetic_spread() -> Image.Image:
@@ -75,6 +84,71 @@ class PageImageHeuristicsTests(unittest.TestCase):
         self.assertEqual(bbox, (0, 0, 200, 100))
         self.assertTrue(used_fallback)
         self.assertIsNotNone(note)
+
+    def test_extract_printed_page_number_no_tesseract(self) -> None:
+        page = Image.new("RGB", (1200, 1800), color="white")
+        with patch("pdf_toolkit.page_images.which_tesseract", return_value=None):
+            extracted = extract_printed_page_number(
+                page,
+                {
+                    "page_num_strip_frac": 0.12,
+                    "page_num_corner_w_frac": 0.28,
+                    "page_num_corner_h_frac": 0.45,
+                    "page_num_psm": 7,
+                    "page_num_max": 5000,
+                    "page_num_debug": False,
+                },
+            )
+        self.assertIsNone(extracted["printed_page"])
+        self.assertEqual(extracted["reason"], "no_tesseract")
+
+    def test_page_number_corner_region_bounds(self) -> None:
+        left, right = _page_number_crop_boxes(
+            1000,
+            1500,
+            {
+                "page_num_strip_frac": 0.12,
+                "page_num_corner_w_frac": 0.28,
+                "page_num_corner_h_frac": 0.45,
+            },
+        )
+        self.assertEqual(left, (0, 0, 280, 81))
+        self.assertEqual(right, (720, 0, 1000, 81))
+        self.assertLess(left[0], left[2])
+        self.assertLess(left[1], left[3])
+        self.assertLess(right[0], right[2])
+        self.assertLess(right[1], right[3])
+
+    @unittest.skipUnless(
+        os.environ.get("PDFTK_RUN_TESSERACT_TESTS") == "1",
+        "Set PDFTK_RUN_TESSERACT_TESTS=1 to run OCR integration checks.",
+    )
+    def test_extract_printed_page_number_with_tesseract(self) -> None:
+        if which_tesseract() is None:
+            self.skipTest("tesseract executable not found in PATH")
+
+        expected = 123
+        page = Image.new("RGB", (1600, 2200), color="white")
+        draw = ImageDraw.Draw(page)
+        try:
+            font = ImageFont.truetype("DejaVuSans.ttf", 140)
+        except OSError:
+            font = ImageFont.load_default()
+        draw.text((1240, 20), str(expected), fill="black", font=font)
+
+        extracted = extract_printed_page_number(
+            page,
+            {
+                "page_num_strip_frac": 0.12,
+                "page_num_corner_w_frac": 0.28,
+                "page_num_corner_h_frac": 0.45,
+                "page_num_psm": 7,
+                "page_num_max": 5000,
+                "page_num_debug": False,
+            },
+        )
+        self.assertEqual(extracted["printed_page"], expected)
+        self.assertEqual(extracted["corner_used"], "right")
 
 
 if __name__ == "__main__":
