@@ -133,6 +133,62 @@ Notes:
 - The feature uses the `tesseract` executable via subprocess.
 - If `tesseract` is unavailable, processing still succeeds and manifest outputs include `printed_page: null` with `reason: "no_tesseract"`.
 
+### Page-images YAML config
+
+Dump the default YAML config:
+
+```powershell
+python -m pdf_toolkit page-images --dump-default-config
+```
+
+Use a config file:
+
+```powershell
+python -m pdf_toolkit page-images --in_dir "out\pages" --out_dir "out\pages_single" --config "configs\page_images.default.yaml"
+```
+
+Precedence is deterministic:
+`built-in defaults < YAML config < explicitly provided CLI flags`.
+
+This means optional CLI defaults do not overwrite YAML values unless the flag is explicitly passed.
+
+Supported YAML shapes:
+
+Root form:
+
+```yaml
+mode: auto
+split_ratio: 1.25
+page_numbers:
+  enabled: true
+  anchors: [top]
+  positions: [right, left, center]
+```
+
+Wrapped form:
+
+```yaml
+page_images:
+  mode: auto
+  split_ratio: 1.25
+  page_numbers:
+    enabled: true
+    anchors: [top, bottom]
+    positions: [right, left, center]
+    psm_candidates: [7, 6, 8]
+    prep_scale: 3
+```
+
+Page number tuning keys (`page_numbers`):
+- `enabled`
+- `anchors` (`top`, `bottom`)
+- `positions` (`left`, `right`, `center`) and order controls search priority
+- `strip_frac`, `corner_w_frac`, `corner_h_frac`, `center_w_frac`
+- `psm_candidates` (tried in order)
+- `max_page`
+- `prep_scale`, `bin_threshold`, `invert`
+- `debug_crops` (writes `_debug/<out_stem>__<region>.png`)
+
 Recommended pipeline:
 `render -> page-images -> ocr-obsidian`
 
@@ -156,9 +212,15 @@ When `page-images` runs with `--extract_page_numbers`, each action output includ
 {
   "path": "out/pages_single/book_p0001_R.png",
   "printed_page": 123,
+  "region_used": "top_right",
+  "psm_used": 7,
   "corner": "right",
   "raw_left": "",
   "raw_right": "123",
+  "raw_by_region": {
+    "top_right": "123",
+    "top_left": ""
+  },
   "reason": null
 }
 ```

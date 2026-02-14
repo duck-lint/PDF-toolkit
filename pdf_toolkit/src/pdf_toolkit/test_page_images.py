@@ -20,7 +20,7 @@ SRC_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SRC_DIR))
 
 from pdf_toolkit.page_images import (
-    _page_number_crop_boxes,
+    build_page_num_regions,
     detect_gutter_x,
     extract_printed_page_number,
     find_crop_bbox,
@@ -91,33 +91,60 @@ class PageImageHeuristicsTests(unittest.TestCase):
             extracted = extract_printed_page_number(
                 page,
                 {
-                    "page_num_strip_frac": 0.12,
-                    "page_num_corner_w_frac": 0.28,
-                    "page_num_corner_h_frac": 0.45,
-                    "page_num_psm": 7,
-                    "page_num_max": 5000,
-                    "page_num_debug": False,
+                    "anchors": ["top"],
+                    "positions": ["right", "left"],
+                    "strip_frac": 0.12,
+                    "corner_w_frac": 0.28,
+                    "corner_h_frac": 0.45,
+                    "center_w_frac": 0.2,
+                    "psm_candidates": [7],
+                    "max_page": 5000,
+                    "prep_scale": 2,
+                    "bin_threshold": 160,
+                    "invert": False,
+                    "debug_crops": False,
                 },
             )
         self.assertIsNone(extracted["printed_page"])
         self.assertEqual(extracted["reason"], "no_tesseract")
 
     def test_page_number_corner_region_bounds(self) -> None:
-        left, right = _page_number_crop_boxes(
+        regions = build_page_num_regions(
             1000,
             1500,
             {
-                "page_num_strip_frac": 0.12,
-                "page_num_corner_w_frac": 0.28,
-                "page_num_corner_h_frac": 0.45,
+                "anchors": ["top", "bottom"],
+                "positions": ["left", "center", "right"],
+                "strip_frac": 0.12,
+                "corner_w_frac": 0.28,
+                "corner_h_frac": 0.45,
+                "center_w_frac": 0.20,
             },
         )
-        self.assertEqual(left, (0, 0, 280, 81))
-        self.assertEqual(right, (720, 0, 1000, 81))
-        self.assertLess(left[0], left[2])
-        self.assertLess(left[1], left[3])
-        self.assertLess(right[0], right[2])
-        self.assertLess(right[1], right[3])
+        names = [name for name, _ in regions]
+        self.assertEqual(
+            names,
+            [
+                "top_left",
+                "top_center",
+                "top_right",
+                "bottom_left",
+                "bottom_center",
+                "bottom_right",
+            ],
+        )
+        expected = {
+            "top_left": (0, 0, 280, 81),
+            "top_center": (400, 0, 600, 81),
+            "top_right": (720, 0, 1000, 81),
+            "bottom_left": (0, 1320, 280, 1401),
+            "bottom_center": (400, 1320, 600, 1401),
+            "bottom_right": (720, 1320, 1000, 1401),
+        }
+        for name, bbox in regions:
+            self.assertEqual(bbox, expected[name])
+            self.assertLess(bbox[0], bbox[2])
+            self.assertLess(bbox[1], bbox[3])
 
     @unittest.skipUnless(
         os.environ.get("PDFTK_RUN_TESSERACT_TESTS") == "1",
@@ -140,12 +167,18 @@ class PageImageHeuristicsTests(unittest.TestCase):
         extracted = extract_printed_page_number(
             page,
             {
-                "page_num_strip_frac": 0.12,
-                "page_num_corner_w_frac": 0.28,
-                "page_num_corner_h_frac": 0.45,
-                "page_num_psm": 7,
-                "page_num_max": page_num_max,
-                "page_num_debug": False,
+                "anchors": ["top"],
+                "positions": ["right", "left"],
+                "strip_frac": 0.12,
+                "corner_w_frac": 0.28,
+                "corner_h_frac": 0.45,
+                "center_w_frac": 0.2,
+                "psm_candidates": [7],
+                "max_page": page_num_max,
+                "prep_scale": 2,
+                "bin_threshold": 160,
+                "invert": False,
+                "debug_crops": False,
             },
             tesseract_exe=tesseract_exe,
         )

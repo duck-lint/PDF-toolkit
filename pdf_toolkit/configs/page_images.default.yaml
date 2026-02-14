@@ -1,0 +1,29 @@
+page_images:
+  glob: "*.png"
+  mode: auto
+  split_ratio: 1.25
+  gutter_search_frac: 0.35
+  x_step: 2
+  y_step: 4
+  crop_threshold: 180
+  pad_px: 20
+  min_area_frac: 0.25
+  debug: false
+  overwrite: false
+  inplace: false
+  dry_run: false
+  manifest: null
+  page_numbers:
+    enabled: false
+    anchors: [top]
+    positions: [right, left]
+    strip_frac: 0.12
+    corner_w_frac: 0.28
+    corner_h_frac: 0.45
+    center_w_frac: 0.20
+    psm_candidates: [7]
+    max_page: 5000
+    prep_scale: 2
+    bin_threshold: 160
+    invert: false
+    debug_crops: false
