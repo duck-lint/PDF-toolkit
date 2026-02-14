@@ -53,6 +53,7 @@ PAGE_IMAGES_EXAMPLES = """Examples:
   python -m pdf_toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages_single" --glob "*.png" --mode auto --debug
   python -m pdf_toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages_single" --mode split --overwrite
   python -m pdf_toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages" --mode crop --inplace --overwrite
+  python -m pdf_toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages_single" --extract_page_numbers --page_num_debug
 """
 
 
@@ -259,6 +260,46 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Write debug overlays to out_dir\\_debug\\.",
     )
+    page_images.add_argument(
+        "--extract_page_numbers",
+        action="store_true",
+        help="Attempt OCR of printed page numbers near top corners.",
+    )
+    page_images.add_argument(
+        "--page_num_strip_frac",
+        type=float,
+        default=0.12,
+        help="Top strip fraction searched for printed page numbers.",
+    )
+    page_images.add_argument(
+        "--page_num_corner_w_frac",
+        type=float,
+        default=0.28,
+        help="Corner crop width fraction for page-number OCR.",
+    )
+    page_images.add_argument(
+        "--page_num_corner_h_frac",
+        type=float,
+        default=0.45,
+        help="Corner crop height fraction within the top strip.",
+    )
+    page_images.add_argument(
+        "--page_num_psm",
+        type=int,
+        default=7,
+        help="Tesseract page segmentation mode for page-number OCR.",
+    )
+    page_images.add_argument(
+        "--page_num_max",
+        type=int,
+        default=5000,
+        help="Maximum accepted printed page number.",
+    )
+    page_images.add_argument(
+        "--page_num_debug",
+        action="store_true",
+        help="Write page-number corner crops to out_dir\\_debug\\.",
+    )
     page_images.add_argument("--overwrite", action="store_true", help="Overwrite existing files.")
     page_images.add_argument(
         "--inplace",
@@ -417,6 +458,13 @@ def main(argv: list[str] | None = None) -> int:
                 command_string=command_string,
                 options=options,
                 debug=args.debug,
+                extract_page_numbers=args.extract_page_numbers,
+                page_num_strip_frac=args.page_num_strip_frac,
+                page_num_corner_w_frac=args.page_num_corner_w_frac,
+                page_num_corner_h_frac=args.page_num_corner_h_frac,
+                page_num_psm=args.page_num_psm,
+                page_num_max=args.page_num_max,
+                page_num_debug=args.page_num_debug,
             )
             return 0
 

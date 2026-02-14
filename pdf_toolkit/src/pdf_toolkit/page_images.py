@@ -9,16 +9,186 @@ Why this module exists:
 
 from __future__ import annotations
 
+import re
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 
 from .manifest import ManifestRecorder
 from .utils import UserError, ensure_dir, ensure_dir_path
 
 
 BBox = Tuple[int, int, int, int]
+PAGE_NUMBER_REGEX = re.compile(r"\d{1,4}")
+
+
+def which_tesseract() -> Optional[str]:
+    """Return the tesseract executable path if available in PATH."""
+
+    return shutil.which("tesseract")
+
+
+def ocr_digits_tesseract(image: Image.Image, psm: int) -> str:
+    """Run tesseract CLI for digits-only OCR and return stdout text."""
+
+    ocr_digits_tesseract.last_error = None  # type: ignore[attr-defined]
+    tmp_path: Optional[Path] = None
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as handle:
+            tmp_path = Path(handle.name)
+            image.save(handle, format="PNG")
+
+        cmd = [
+            "tesseract",
+            str(tmp_path),
+            "stdout",
+            "--psm",
+            str(psm),
+            "-l",
+            "eng",
+            "-c",
+            "tessedit_char_whitelist=0123456789",
+        ]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            stderr = result.stderr.strip()
+            stdout = result.stdout.strip()
+            details = stderr or stdout or f"exit code {result.returncode}"
+            ocr_digits_tesseract.last_error = f"tesseract failed: {details}"  # type: ignore[attr-defined]
+            return ""
+        return result.stdout.strip()
+    except Exception as exc:  # pragma: no cover - subprocess OS errors
+        ocr_digits_tesseract.last_error = f"tesseract invocation error: {exc}"  # type: ignore[attr-defined]
+        return ""
+    finally:
+        if tmp_path is not None and tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+
+
+ocr_digits_tesseract.last_error = None  # type: ignore[attr-defined]
+
+
+def _prepare_corner_for_ocr(corner_image: Image.Image) -> Image.Image:
+    """Normalize a corner crop for digits-only OCR using Pillow operations."""
+
+    gray = corner_image.convert("L")
+    gray = ImageOps.autocontrast(gray)
+    enlarged = gray.resize((gray.width * 2, gray.height * 2), Image.Resampling.LANCZOS)
+    return enlarged.point(lambda value: 255 if value >= 160 else 0)
+
+
+def _page_number_crop_boxes(width: int, height: int, cfg: Dict[str, Any]) -> Tuple[BBox, BBox]:
+    """Build left/right top-corner crop boxes from fractional settings."""
+
+    strip_h = max(1, int(height * float(cfg["page_num_strip_frac"])))
+    corner_w = max(1, int(width * float(cfg["page_num_corner_w_frac"])))
+    corner_h = max(1, int(strip_h * float(cfg["page_num_corner_h_frac"])))
+
+    safe_corner_w = min(width, corner_w)
+    safe_corner_h = min(height, corner_h)
+    right_x0 = max(0, int(width * (1.0 - float(cfg["page_num_corner_w_frac"]))))
+
+    left_crop = (0, 0, safe_corner_w, safe_corner_h)
+    right_crop = (right_x0, 0, width, safe_corner_h)
+    return left_crop, right_crop
+
+
+def _extract_candidate(raw_text: str) -> Optional[int]:
+    """Extract the first 1-4 digit token from OCR output."""
+
+    match = PAGE_NUMBER_REGEX.search(raw_text)
+    if match is None:
+        return None
+    return int(match.group(0))
+
+
+def extract_printed_page_number(page_img: Image.Image, cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Attempt to extract printed page number from top corners.
+
+    Returns fields for manifest recording:
+    - printed_page: int | None
+    - corner_used: "left" | "right" | None
+    - raw_left / raw_right: OCR raw text
+    - reason: nullable failure reason
+    """
+
+    result: Dict[str, Any] = {
+        "printed_page": None,
+        "corner_used": None,
+        "raw_left": "",
+        "raw_right": "",
+        "reason": None,
+    }
+
+    left_box, right_box = _page_number_crop_boxes(page_img.width, page_img.height, cfg)
+    left_crop = page_img.crop(left_box)
+    right_crop = page_img.crop(right_box)
+
+    if cfg.get("page_num_debug"):
+        debug_dir = cfg.get("debug_dir")
+        debug_base = cfg.get("debug_base")
+        if isinstance(debug_dir, Path) and isinstance(debug_base, str):
+            left_crop.save(debug_dir / f"{debug_base}_corner_left.png")
+            right_crop.save(debug_dir / f"{debug_base}_corner_right.png")
+
+    if "tesseract_path" in cfg:
+        tesseract_path = cfg.get("tesseract_path")
+    else:
+        tesseract_path = which_tesseract()
+    if not tesseract_path:
+        result["reason"] = "no_tesseract"
+        return result
+
+    left_raw = ocr_digits_tesseract(_prepare_corner_for_ocr(left_crop), int(cfg["page_num_psm"]))
+    left_error = getattr(ocr_digits_tesseract, "last_error", None)
+    right_raw = ocr_digits_tesseract(_prepare_corner_for_ocr(right_crop), int(cfg["page_num_psm"]))
+    right_error = getattr(ocr_digits_tesseract, "last_error", None)
+
+    result["raw_left"] = left_raw
+    result["raw_right"] = right_raw
+
+    left_num = _extract_candidate(left_raw)
+    right_num = _extract_candidate(right_raw)
+
+    page_num_max = int(cfg["page_num_max"])
+    valid_right = right_num is not None and 1 <= right_num <= page_num_max
+    valid_left = left_num is not None and 1 <= left_num <= page_num_max
+
+    picked_num: Optional[int] = None
+    picked_corner: Optional[str] = None
+    if valid_right:
+        picked_num = right_num
+        picked_corner = "right"
+    elif valid_left:
+        picked_num = left_num
+        picked_corner = "left"
+
+    if picked_num is None:
+        if right_num is not None or left_num is not None:
+            result["reason"] = "out_of_range"
+        else:
+            error_messages = [message for message in [left_error, right_error] if message]
+            if error_messages:
+                result["reason"] = "tesseract_error"
+                result["tesseract_error"] = "; ".join(error_messages)
+            else:
+                result["reason"] = "no_digits"
+        return result
+
+    result["printed_page"] = picked_num
+    result["corner_used"] = picked_corner
+    return result
 
 
 def _collect_image_files(in_dir: Path, pattern: str) -> List[Path]:
@@ -36,6 +206,11 @@ def _validate_options(
     crop_threshold: int,
     pad_px: int,
     min_area_frac: float,
+    page_num_strip_frac: float,
+    page_num_corner_w_frac: float,
+    page_num_corner_h_frac: float,
+    page_num_psm: int,
+    page_num_max: int,
 ) -> None:
     """Validate user-facing options and raise clear errors."""
 
@@ -55,6 +230,16 @@ def _validate_options(
         raise UserError("--pad_px must be >= 0.")
     if min_area_frac <= 0 or min_area_frac > 1:
         raise UserError("--min_area_frac must be in the range (0, 1].")
+    if page_num_strip_frac <= 0 or page_num_strip_frac > 1:
+        raise UserError("--page_num_strip_frac must be in the range (0, 1].")
+    if page_num_corner_w_frac <= 0 or page_num_corner_w_frac > 1:
+        raise UserError("--page_num_corner_w_frac must be in the range (0, 1].")
+    if page_num_corner_h_frac <= 0 or page_num_corner_h_frac > 1:
+        raise UserError("--page_num_corner_h_frac must be in the range (0, 1].")
+    if page_num_psm <= 0:
+        raise UserError("--page_num_psm must be > 0.")
+    if page_num_max <= 0:
+        raise UserError("--page_num_max must be > 0.")
 
 
 def detect_spread(width: int, height: int, split_ratio: float) -> bool:
@@ -239,6 +424,13 @@ def page_images_in_folder(
     command_string: str,
     options: Dict[str, object],
     debug: bool,
+    extract_page_numbers: bool = False,
+    page_num_strip_frac: float = 0.12,
+    page_num_corner_w_frac: float = 0.28,
+    page_num_corner_h_frac: float = 0.45,
+    page_num_psm: int = 7,
+    page_num_max: int = 5000,
+    page_num_debug: bool = False,
 ) -> None:
     """
     Process page images by optional spread split + page crop.
@@ -261,6 +453,11 @@ def page_images_in_folder(
         crop_threshold=crop_threshold,
         pad_px=pad_px,
         min_area_frac=min_area_frac,
+        page_num_strip_frac=page_num_strip_frac,
+        page_num_corner_w_frac=page_num_corner_w_frac,
+        page_num_corner_h_frac=page_num_corner_h_frac,
+        page_num_psm=page_num_psm,
+        page_num_max=page_num_max,
     )
 
     if out_dir.resolve() == in_dir.resolve():
@@ -299,13 +496,19 @@ def page_images_in_folder(
     debug_dir = out_dir / "_debug"
     if not dry_run:
         ensure_dir(out_dir, dry_run=False)
-        if debug:
+        if debug or page_num_debug:
             ensure_dir(debug_dir, dry_run=False)
 
     processed = 0
     split_count = 0
     crop_only_count = 0
     skipped = 0
+    tesseract_path = which_tesseract() if extract_page_numbers else None
+    if extract_page_numbers and tesseract_path is None:
+        recorder.log(
+            "Printed page number OCR enabled but tesseract was not found in PATH; "
+            "recording printed_page=null with reason=no_tesseract."
+        )
 
     for position, in_path in enumerate(files, start=1):
         try:
@@ -341,11 +544,26 @@ def page_images_in_folder(
         if any(path.exists() for path in output_paths) and not overwrite:
             skipped += 1
             recorder.log(f"Skipping existing output(s) for {in_path.name}")
+            skipped_outputs: List[object]
+            if extract_page_numbers:
+                skipped_outputs = [
+                    {
+                        "path": str(path),
+                        "printed_page": None,
+                        "corner": None,
+                        "raw_left": "",
+                        "raw_right": "",
+                        "reason": "skipped_existing_output",
+                    }
+                    for path in output_paths
+                ]
+            else:
+                skipped_outputs = [str(path) for path in output_paths]
             recorder.add_action(
                 action="page_images",
                 status="skipped",
                 input=str(in_path),
-                outputs=[str(path) for path in output_paths],
+                outputs=skipped_outputs,
                 mode_used=mode_used,
                 detected_spread=detected_spread,
                 notes=notes + ["One or more outputs already exist."],
@@ -434,9 +652,51 @@ def page_images_in_folder(
         else:
             crop_only_count += 1
 
+        output_entries: List[object]
+        if extract_page_numbers:
+            output_entries = []
+            for produced, out_path in zip(produced_images, output_paths):
+                debug_base = out_path.stem
+                if page_num_debug and dry_run:
+                    recorder.log(
+                        f"[dry-run] Would write page-number crops: "
+                        f"{debug_dir / f'{debug_base}_corner_left.png'}, "
+                        f"{debug_dir / f'{debug_base}_corner_right.png'}"
+                    )
+                extraction = extract_printed_page_number(
+                    produced,
+                    {
+                        "tesseract_path": tesseract_path,
+                        "page_num_strip_frac": page_num_strip_frac,
+                        "page_num_corner_w_frac": page_num_corner_w_frac,
+                        "page_num_corner_h_frac": page_num_corner_h_frac,
+                        "page_num_psm": page_num_psm,
+                        "page_num_max": page_num_max,
+                        "page_num_debug": page_num_debug and not dry_run,
+                        "debug_dir": debug_dir,
+                        "debug_base": debug_base,
+                    },
+                )
+                output_record: Dict[str, object] = {
+                    "path": str(out_path),
+                    "printed_page": extraction["printed_page"],
+                    "corner": extraction["corner_used"],
+                    "raw_left": extraction["raw_left"],
+                    "raw_right": extraction["raw_right"],
+                    "reason": extraction["reason"],
+                }
+                if extraction.get("tesseract_error"):
+                    output_record["tesseract_error"] = extraction["tesseract_error"]
+                    notes.append(
+                        f"OCR warning for {out_path.name}: {extraction['tesseract_error']}"
+                    )
+                output_entries.append(output_record)
+        else:
+            output_entries = [str(path) for path in output_paths]
+
         action_details = {
             "input": str(in_path),
-            "outputs": [str(path) for path in output_paths],
+            "outputs": output_entries,
             "mode_used": mode_used,
             "detected_spread": detected_spread,
             "notes": notes,
