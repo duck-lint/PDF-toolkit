@@ -182,11 +182,14 @@ page_images:
 Page number tuning keys (`page_numbers`):
 - `enabled`
 - `anchors` (`top`, `bottom`)
-- `positions` (`left`, `right`, `center`) and order controls search priority
-- `strip_frac`, `corner_w_frac`, `corner_h_frac`, `center_w_frac`
+- `positions` / `allow_positions` (`left`, `right`, `center`) and order controls search priority
+- `parser` (`auto`, `arabic`, `roman`)
+- `roman_whitelist`
+- `strip_frac`, `strip_y_offset_px`, `corner_w_frac`, `corner_h_frac`, `center_w_frac`
 - `psm_candidates` (tried in order)
 - `max_page`
 - `prep_scale`, `bin_threshold`, `invert`
+- `dark_bbox` (`enabled`, `threshold`, `pad_px`, `min_area_frac`)
 - `debug_crops` (writes `_debug/<out_stem>__<region>.png`)
 
 Recommended pipeline:
@@ -212,6 +215,8 @@ When `page-images` runs with `--extract_page_numbers`, each action output includ
 {
   "path": "out/pages_single/book_p0001_R.png",
   "printed_page": 123,
+  "printed_page_text": "xii",
+  "printed_page_kind": "roman",
   "region_used": "top_right",
   "psm_used": 7,
   "corner": "right",

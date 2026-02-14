@@ -24,6 +24,7 @@ from pdf_toolkit.page_images import (
     detect_gutter_x,
     extract_printed_page_number,
     find_crop_bbox,
+    parse_roman_numeral,
     split_spread_image,
     which_tesseract,
 )
@@ -145,6 +146,44 @@ class PageImageHeuristicsTests(unittest.TestCase):
             self.assertEqual(bbox, expected[name])
             self.assertLess(bbox[0], bbox[2])
             self.assertLess(bbox[1], bbox[3])
+
+    def test_page_number_region_y_offset_clamped(self) -> None:
+        regions = build_page_num_regions(
+            1000,
+            1500,
+            {
+                "anchors": ["top"],
+                "allow_positions": ["left", "right"],
+                "positions": ["left", "right"],
+                "strip_frac": 0.12,
+                "strip_y_offset_px": 2000,
+                "corner_w_frac": 0.28,
+                "corner_h_frac": 0.45,
+                "center_w_frac": 0.20,
+            },
+        )
+        for _, bbox in regions:
+            self.assertGreaterEqual(bbox[1], 0)
+            self.assertLessEqual(bbox[1], 1499)
+            self.assertGreater(bbox[3], bbox[1])
+            self.assertLessEqual(bbox[3], 1500)
+
+    def test_parse_roman_numeral_valid(self) -> None:
+        self.assertEqual(parse_roman_numeral("x"), 10)
+        self.assertEqual(parse_roman_numeral("xi"), 11)
+        self.assertEqual(parse_roman_numeral("xii"), 12)
+        self.assertEqual(parse_roman_numeral("iv"), 4)
+        self.assertEqual(parse_roman_numeral("ix"), 9)
+        self.assertEqual(parse_roman_numeral("xl"), 40)
+        self.assertEqual(parse_roman_numeral("MCMXCIV"), 1994)
+
+    def test_parse_roman_numeral_rejects_invalid(self) -> None:
+        self.assertIsNone(parse_roman_numeral(""))
+        self.assertIsNone(parse_roman_numeral("IIII"))
+        self.assertIsNone(parse_roman_numeral("IC"))
+        self.assertIsNone(parse_roman_numeral("VX"))
+        self.assertIsNone(parse_roman_numeral("abc"))
+        self.assertIsNone(parse_roman_numeral("iix"))
 
     @unittest.skipUnless(
         os.environ.get("PDFTK_RUN_TESSERACT_TESTS") == "1",
