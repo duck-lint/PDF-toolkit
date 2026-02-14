@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -32,7 +33,7 @@ def which_tesseract() -> Optional[str]:
     return shutil.which("tesseract")
 
 
-def ocr_digits_tesseract(image: Image.Image, psm: int) -> str:
+def ocr_digits_tesseract(image: Image.Image, psm: int, tesseract_exe: str | Path) -> str:
     """Run tesseract CLI for digits-only OCR and return stdout text."""
 
     ocr_digits_tesseract.last_error = None  # type: ignore[attr-defined]
@@ -44,7 +45,7 @@ def ocr_digits_tesseract(image: Image.Image, psm: int) -> str:
             image.save(handle, format="PNG")
 
         cmd = [
-            "tesseract",
+            str(tesseract_exe),
             str(tmp_path),
             "stdout",
             "--psm",
@@ -112,7 +113,11 @@ def _extract_candidate(raw_text: str) -> Optional[int]:
     return int(match.group(0))
 
 
-def extract_printed_page_number(page_img: Image.Image, cfg: Dict[str, Any]) -> Dict[str, Any]:
+def extract_printed_page_number(
+    page_img: Image.Image,
+    cfg: Dict[str, Any],
+    tesseract_exe: str | Path | None = None,
+) -> Dict[str, Any]:
     """
     Attempt to extract printed page number from top corners.
 
@@ -142,17 +147,22 @@ def extract_printed_page_number(page_img: Image.Image, cfg: Dict[str, Any]) -> D
             left_crop.save(debug_dir / f"{debug_base}_corner_left.png")
             right_crop.save(debug_dir / f"{debug_base}_corner_right.png")
 
-    if "tesseract_path" in cfg:
-        tesseract_path = cfg.get("tesseract_path")
-    else:
-        tesseract_path = which_tesseract()
-    if not tesseract_path:
+    resolved_tesseract = tesseract_exe if tesseract_exe is not None else which_tesseract()
+    if not resolved_tesseract:
         result["reason"] = "no_tesseract"
         return result
 
-    left_raw = ocr_digits_tesseract(_prepare_corner_for_ocr(left_crop), int(cfg["page_num_psm"]))
+    left_raw = ocr_digits_tesseract(
+        _prepare_corner_for_ocr(left_crop),
+        int(cfg["page_num_psm"]),
+        resolved_tesseract,
+    )
     left_error = getattr(ocr_digits_tesseract, "last_error", None)
-    right_raw = ocr_digits_tesseract(_prepare_corner_for_ocr(right_crop), int(cfg["page_num_psm"]))
+    right_raw = ocr_digits_tesseract(
+        _prepare_corner_for_ocr(right_crop),
+        int(cfg["page_num_psm"]),
+        resolved_tesseract,
+    )
     right_error = getattr(ocr_digits_tesseract, "last_error", None)
 
     result["raw_left"] = left_raw
@@ -180,7 +190,7 @@ def extract_printed_page_number(page_img: Image.Image, cfg: Dict[str, Any]) -> D
         else:
             error_messages = [message for message in [left_error, right_error] if message]
             if error_messages:
-                result["reason"] = "tesseract_error"
+                result["reason"] = "tesseract_failed"
                 result["tesseract_error"] = "; ".join(error_messages)
             else:
                 result["reason"] = "no_digits"
@@ -503,11 +513,12 @@ def page_images_in_folder(
     split_count = 0
     crop_only_count = 0
     skipped = 0
-    tesseract_path = which_tesseract() if extract_page_numbers else None
-    if extract_page_numbers and tesseract_path is None:
-        recorder.log(
-            "Printed page number OCR enabled but tesseract was not found in PATH; "
-            "recording printed_page=null with reason=no_tesseract."
+    tesseract_exe = which_tesseract() if extract_page_numbers else None
+    if extract_page_numbers and tesseract_exe is None:
+        print(
+            "WARN: --extract_page_numbers enabled but 'tesseract' not found in PATH; "
+            "printed_page will be null. Install Tesseract and ensure it is on PATH.",
+            file=sys.stderr,
         )
 
     for position, in_path in enumerate(files, start=1):
@@ -666,7 +677,6 @@ def page_images_in_folder(
                 extraction = extract_printed_page_number(
                     produced,
                     {
-                        "tesseract_path": tesseract_path,
                         "page_num_strip_frac": page_num_strip_frac,
                         "page_num_corner_w_frac": page_num_corner_w_frac,
                         "page_num_corner_h_frac": page_num_corner_h_frac,
@@ -676,6 +686,7 @@ def page_images_in_folder(
                         "debug_dir": debug_dir,
                         "debug_base": debug_base,
                     },
+                    tesseract_exe=tesseract_exe,
                 )
                 output_record: Dict[str, object] = {
                     "path": str(out_path),
