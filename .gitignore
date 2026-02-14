@@ -2,6 +2,7 @@ Set-Content -Path .gitignore -Value @"
 # never commit the virtual environment or manifests
 .venv/
 _workroot_manifests/
+pdf_toolkit-workroot/
 _workroot_transcripts/
 
 # python junk
@@ -10,6 +11,7 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+repo_marker.py
 
 # OS junk
 .DS_Store
