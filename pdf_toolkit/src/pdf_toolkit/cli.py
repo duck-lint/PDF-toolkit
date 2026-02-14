@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from . import __version__
+from .page_images import page_images_in_folder
 from .render import render_pdf_to_pngs
 from .rotate import rotate_images_in_folder, rotate_pdf_pages
 from .split import split_pdf
@@ -25,6 +26,7 @@ TOP_LEVEL_EXAMPLES = """Examples:
   python -m pdf_toolkit split --pdf "in.pdf" --out_dir "out\\splits" --ranges "1-120,121-240" --prefix "book"
   python -m pdf_toolkit rotate pdf --pdf "in.pdf" --out_pdf "in_rotated.pdf" --degrees 90 --pages "all"
   python -m pdf_toolkit rotate images --in_dir "out\\pages" --glob "*.png" --degrees 90 --out_dir "out\\pages_rot"
+  python -m pdf_toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages_single" --glob "*.png" --mode auto --debug
 """
 
 RENDER_EXAMPLES = """Examples:
@@ -47,11 +49,17 @@ ROTATE_IMAGES_EXAMPLES = """Examples:
   python -m pdf_toolkit rotate images --in_dir "out\\pages" --glob "*.png" --degrees 90 --out_dir "out\\pages" --inplace --overwrite
 """
 
+PAGE_IMAGES_EXAMPLES = """Examples:
+  python -m pdf_toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages_single" --glob "*.png" --mode auto --debug
+  python -m pdf_toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages_single" --mode split --overwrite
+  python -m pdf_toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages" --mode crop --inplace --overwrite
+"""
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pdf_toolkit",
-        description="Local, lightweight PDF tools (render, split, rotate).",
+        description="Local, lightweight PDF tools (render, split, rotate, page-images).",
         epilog=TOP_LEVEL_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -181,6 +189,88 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Manifest path (default: out_dir\\manifest.json).",
     )
 
+    page_images = subparsers.add_parser(
+        "page-images",
+        help="Split spread scans and crop page bounds in image folders.",
+        epilog=PAGE_IMAGES_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    page_images.add_argument("--in_dir", required=True, help="Input folder of page images.")
+    page_images.add_argument(
+        "--out_dir",
+        required=True,
+        help="Output folder for processed images.",
+    )
+    page_images.add_argument(
+        "--glob",
+        default="*.png",
+        help='Glob pattern for input files (default: "*.png").',
+    )
+    page_images.add_argument(
+        "--mode",
+        choices=["auto", "split", "crop"],
+        default="auto",
+        help="auto=split wides, split=always split, crop=never split.",
+    )
+    page_images.add_argument(
+        "--split_ratio",
+        type=float,
+        default=1.25,
+        help="Aspect ratio threshold for spread detection in auto mode.",
+    )
+    page_images.add_argument(
+        "--gutter_search_frac",
+        type=float,
+        default=0.35,
+        help="Fraction of width to search around center for gutter.",
+    )
+    page_images.add_argument(
+        "--crop_threshold",
+        type=int,
+        default=180,
+        help="Brightness threshold for page crop mask (0-255).",
+    )
+    page_images.add_argument(
+        "--pad_px",
+        type=int,
+        default=20,
+        help="Padding around detected crop box in pixels.",
+    )
+    page_images.add_argument(
+        "--min_area_frac",
+        type=float,
+        default=0.25,
+        help="Minimum crop area fraction before falling back to full image.",
+    )
+    page_images.add_argument(
+        "--x_step",
+        type=int,
+        default=2,
+        help="X stride for gutter search sampling.",
+    )
+    page_images.add_argument(
+        "--y_step",
+        type=int,
+        default=4,
+        help="Y stride for gutter search sampling.",
+    )
+    page_images.add_argument(
+        "--debug",
+        action="store_true",
+        help="Write debug overlays to out_dir\\_debug\\.",
+    )
+    page_images.add_argument("--overwrite", action="store_true", help="Overwrite existing files.")
+    page_images.add_argument(
+        "--inplace",
+        action="store_true",
+        help="Allow out_dir to equal in_dir (requires --overwrite).",
+    )
+    page_images.add_argument("--dry-run", action="store_true", help="Show actions without writing files.")
+    page_images.add_argument(
+        "--manifest",
+        help="Manifest path (default: out_dir\\manifest.json).",
+    )
+
     return parser
 
 
@@ -299,6 +389,34 @@ def main(argv: list[str] | None = None) -> int:
                 manifest_path=manifest_path,
                 command_string=command_string,
                 options=options,
+            )
+            return 0
+
+        if args.command == "page-images":
+            in_dir = normalize_path(args.in_dir)
+            out_dir = normalize_path(args.out_dir)
+            manifest_path = (
+                normalize_path(args.manifest) if args.manifest else out_dir / "manifest.json"
+            )
+            page_images_in_folder(
+                in_dir=in_dir,
+                out_dir=out_dir,
+                pattern=args.glob,
+                mode=args.mode,
+                split_ratio=args.split_ratio,
+                gutter_search_frac=args.gutter_search_frac,
+                x_step=args.x_step,
+                y_step=args.y_step,
+                crop_threshold=args.crop_threshold,
+                pad_px=args.pad_px,
+                min_area_frac=args.min_area_frac,
+                overwrite=args.overwrite,
+                inplace=args.inplace,
+                dry_run=args.dry_run,
+                manifest_path=manifest_path,
+                command_string=command_string,
+                options=options,
+                debug=args.debug,
             )
             return 0
 
