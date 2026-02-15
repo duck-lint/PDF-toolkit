@@ -33,6 +33,7 @@ DEFAULT_PAGE_IMAGES: dict[str, Any] = {
     "manifest": None,
     "page_numbers": {
         "enabled": False,
+        "relative_to": "image",
         "anchors": ["top"],
         "positions": ["right", "left"],
         "allow_positions": ["right", "left"],

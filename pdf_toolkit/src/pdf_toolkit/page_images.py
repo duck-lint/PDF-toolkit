@@ -31,6 +31,7 @@ ROMAN_CANONICAL_REGEX = re.compile(
 VALID_PAGE_NUM_ANCHORS = {"top", "bottom"}
 VALID_PAGE_NUM_POSITIONS = {"left", "center", "right"}
 VALID_PAGE_NUM_PARSERS = {"auto", "arabic", "roman"}
+VALID_PAGE_NUM_RELATIVE_TO = {"image", "text_bbox"}
 
 
 def which_tesseract() -> Optional[str]:
@@ -112,7 +113,12 @@ def _prepare_for_ocr(
     return gray.point(lambda value: 255 if value >= threshold else 0)
 
 
-def build_page_num_regions(width: int, height: int, cfg: Dict[str, Any]) -> List[Tuple[str, BBox]]:
+def build_page_num_regions(
+    width: int,
+    height: int,
+    cfg: Dict[str, Any],
+    frame_bbox: Optional[BBox] = None,
+) -> List[Tuple[str, BBox]]:
     """
     Build named OCR regions from anchor/position configuration.
 
@@ -122,37 +128,71 @@ def build_page_num_regions(width: int, height: int, cfg: Dict[str, Any]) -> List
     anchors = list(cfg["anchors"])
     positions = list(cfg.get("allow_positions", cfg["positions"]))
 
-    strip_h = max(1, int(height * float(cfg["strip_frac"])))
+    if frame_bbox is None:
+        frame_left, frame_top, frame_right, frame_bottom = 0, 0, width, height
+    else:
+        left, top, right, bottom = frame_bbox
+        frame_left = max(0, min(width, int(left)))
+        frame_top = max(0, min(height, int(top)))
+        frame_right = max(frame_left, min(width, int(right)))
+        frame_bottom = max(frame_top, min(height, int(bottom)))
+        if frame_right <= frame_left or frame_bottom <= frame_top:
+            frame_left, frame_top, frame_right, frame_bottom = 0, 0, width, height
+
+    frame_w = max(1, frame_right - frame_left)
+    frame_h = max(1, frame_bottom - frame_top)
+
+    strip_h = max(1, int(frame_h * float(cfg["strip_frac"])))
+    strip_h = min(frame_h, strip_h)
     region_h = max(1, int(strip_h * float(cfg["corner_h_frac"])))
-    region_h = min(height, region_h)
+    region_h = min(frame_h, region_h)
     strip_y_offset_px = max(0, int(cfg.get("strip_y_offset_px", 0)))
 
-    corner_w = max(1, int(width * float(cfg["corner_w_frac"])))
-    corner_w = min(width, corner_w)
-    center_w = max(1, int(width * float(cfg["center_w_frac"])))
-    center_w = min(width, center_w)
+    corner_w = max(1, int(frame_w * float(cfg["corner_w_frac"])))
+    corner_w = min(frame_w, corner_w)
+    center_w = max(1, int(frame_w * float(cfg["center_w_frac"])))
+    center_w = min(frame_w, center_w)
 
     regions: List[Tuple[str, BBox]] = []
     for anchor in anchors:
         if anchor == "top":
-            strip_y0 = min(max(0, strip_y_offset_px), max(0, height - 1))
+            strip_y0_local = min(max(0, strip_y_offset_px), max(0, frame_h - 1))
         else:
-            strip_y0 = max(0, height - strip_h)
-        y0 = strip_y0
-        y1 = min(height, y0 + region_h)
+            strip_y0_local = max(0, frame_h - strip_h)
+        y0 = frame_top + strip_y0_local
+        y1 = min(frame_bottom, y0 + region_h)
         if y1 <= y0:
-            y1 = min(height, y0 + 1)
+            y1 = min(frame_bottom, y0 + 1)
 
         for position in positions:
             if position == "left":
-                x0, x1 = 0, corner_w
+                x0, x1 = frame_left, frame_left + corner_w
             elif position == "right":
-                x0, x1 = max(0, width - corner_w), width
+                x0, x1 = frame_right - corner_w, frame_right
             else:
-                x0 = max(0, (width - center_w) // 2)
-                x1 = min(width, x0 + center_w)
+                x0 = frame_left + max(0, (frame_w - center_w) // 2)
+                x1 = min(frame_right, x0 + center_w)
             regions.append((f"{anchor}_{position}", (x0, y0, x1, y1)))
     return regions
+
+
+def _compute_text_bbox_for_page(page_img: Image.Image, dark_bbox_cfg: Dict[str, Any]) -> Optional[BBox]:
+    """Estimate a dark-pixel text block bbox for optional page-number region anchoring."""
+
+    gray = page_img.convert("L")
+    threshold = int(dark_bbox_cfg.get("threshold", 170))
+    mask = gray.point(lambda value: 255 if value <= threshold else 0)
+    bbox = mask.getbbox()
+    if bbox is None:
+        return None
+
+    left, top, right, bottom = bbox
+    bbox_area = max(0, right - left) * max(0, bottom - top)
+    image_area = max(1, page_img.width * page_img.height)
+    min_area_frac = float(dark_bbox_cfg.get("min_area_frac", 0.0))
+    if bbox_area < int(min_area_frac * image_area):
+        return None
+    return bbox
 
 
 def _extract_candidate(raw_text: str) -> Optional[int]:
@@ -257,7 +297,12 @@ def extract_printed_page_number(
         "reason": None,
     }
 
-    regions = build_page_num_regions(page_img.width, page_img.height, cfg)
+    dark_bbox_cfg = dict(cfg.get("dark_bbox", {}))
+    relative_to = str(cfg.get("relative_to", "image")).lower()
+    frame_bbox: Optional[BBox] = None
+    if relative_to == "text_bbox":
+        frame_bbox = _compute_text_bbox_for_page(page_img, dark_bbox_cfg)
+    regions = build_page_num_regions(page_img.width, page_img.height, cfg, frame_bbox=frame_bbox)
     debug_dir = cfg.get("debug_dir")
     debug_base = cfg.get("debug_base")
     write_debug = bool(cfg.get("debug_crops"))
@@ -277,7 +322,6 @@ def extract_printed_page_number(
     prep_scale = int(cfg["prep_scale"])
     bin_threshold = int(cfg["bin_threshold"])
     invert = bool(cfg["invert"])
-    dark_bbox_cfg = dict(cfg.get("dark_bbox", {}))
 
     saw_out_of_range = False
     error_messages: List[str] = []
@@ -391,6 +435,7 @@ def _validate_options(
     page_num_anchors: List[str],
     page_num_positions: List[str],
     page_num_parser: str,
+    page_num_relative_to: str,
     page_num_roman_whitelist: str,
     page_num_strip_frac: float,
     page_num_strip_y_offset_px: int,
@@ -446,6 +491,11 @@ def _validate_options(
     if page_num_parser not in VALID_PAGE_NUM_PARSERS:
         raise UserError(
             f"page_numbers.parser must be one of: {sorted(VALID_PAGE_NUM_PARSERS)}."
+        )
+    if page_num_relative_to not in VALID_PAGE_NUM_RELATIVE_TO:
+        raise UserError(
+            "page_numbers.relative_to must be one of: "
+            f"{sorted(VALID_PAGE_NUM_RELATIVE_TO)}."
         )
     if not page_num_roman_whitelist:
         raise UserError("page_numbers.roman_whitelist must not be empty.")
@@ -676,6 +726,7 @@ def page_images_in_folder(
     page_num_anchors: Optional[List[str]] = None,
     page_num_positions: Optional[List[str]] = None,
     page_num_parser: str = "auto",
+    page_num_relative_to: str = "image",
     page_num_roman_whitelist: str = "IVXLCDMivxlcdm",
     page_num_strip_frac: float = 0.12,
     page_num_strip_y_offset_px: int = 0,
@@ -714,6 +765,7 @@ def page_images_in_folder(
         else [int(page_num_psm)]
     )
     resolved_parser = str(page_num_parser).lower()
+    resolved_relative_to = str(page_num_relative_to).lower()
     resolved_dark_bbox = (
         dict(page_num_dark_bbox)
         if page_num_dark_bbox is not None
@@ -734,6 +786,7 @@ def page_images_in_folder(
         page_num_anchors=resolved_anchors,
         page_num_positions=resolved_positions,
         page_num_parser=resolved_parser,
+        page_num_relative_to=resolved_relative_to,
         page_num_roman_whitelist=page_num_roman_whitelist,
         page_num_strip_frac=page_num_strip_frac,
         page_num_strip_y_offset_px=page_num_strip_y_offset_px,
@@ -953,6 +1006,9 @@ def page_images_in_folder(
             for produced, out_path in zip(produced_images, output_paths):
                 debug_base = out_path.stem
                 if use_page_num_debug_crops and dry_run:
+                    debug_frame_bbox: Optional[BBox] = None
+                    if resolved_relative_to == "text_bbox":
+                        debug_frame_bbox = _compute_text_bbox_for_page(produced, resolved_dark_bbox)
                     debug_regions = build_page_num_regions(
                         produced.width,
                         produced.height,
@@ -965,6 +1021,7 @@ def page_images_in_folder(
                             "corner_h_frac": page_num_corner_h_frac,
                             "center_w_frac": page_num_center_w_frac,
                         },
+                        frame_bbox=debug_frame_bbox,
                     )
                     planned_debug = [
                         str(debug_dir / f"{debug_base}__{name}.png") for name, _ in debug_regions
@@ -979,6 +1036,7 @@ def page_images_in_folder(
                         "allow_positions": resolved_positions,
                         "positions": resolved_positions,
                         "parser": resolved_parser,
+                        "relative_to": resolved_relative_to,
                         "roman_whitelist": page_num_roman_whitelist,
                         "strip_frac": page_num_strip_frac,
                         "strip_y_offset_px": page_num_strip_y_offset_px,

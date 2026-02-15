@@ -15,6 +15,7 @@ page_images:
   manifest: null
   page_numbers:
     enabled: true
+    relative_to: image
     anchors: [top]
     positions: [right, left]
     allow_positions: [left, right]

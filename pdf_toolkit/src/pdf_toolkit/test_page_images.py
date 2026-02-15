@@ -20,6 +20,7 @@ SRC_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SRC_DIR))
 
 from pdf_toolkit.page_images import (
+    _compute_text_bbox_for_page,
     build_page_num_regions,
     detect_gutter_x,
     extract_printed_page_number,
@@ -167,6 +168,42 @@ class PageImageHeuristicsTests(unittest.TestCase):
             self.assertLessEqual(bbox[1], 1499)
             self.assertGreater(bbox[3], bbox[1])
             self.assertLessEqual(bbox[3], 1500)
+
+    def test_page_number_regions_relative_to_text_bbox_move_inward(self) -> None:
+        page = Image.new("L", (200, 120), color=255)
+        draw = ImageDraw.Draw(page)
+        draw.rectangle((40, 20, 159, 99), fill=0)
+        page_rgb = page.convert("RGB")
+
+        cfg = {
+            "anchors": ["top"],
+            "positions": ["left", "right"],
+            "strip_frac": 0.20,
+            "corner_w_frac": 0.25,
+            "corner_h_frac": 0.50,
+            "center_w_frac": 0.20,
+            "strip_y_offset_px": 0,
+        }
+        by_image = dict(build_page_num_regions(page_rgb.width, page_rgb.height, cfg))
+
+        text_bbox = _compute_text_bbox_for_page(
+            page_rgb,
+            {"threshold": 170, "min_area_frac": 0.001},
+        )
+        self.assertIsNotNone(text_bbox)
+
+        by_text_bbox = dict(
+            build_page_num_regions(
+                page_rgb.width,
+                page_rgb.height,
+                cfg,
+                frame_bbox=text_bbox,
+            )
+        )
+
+        self.assertGreater(by_text_bbox["top_left"][0], by_image["top_left"][0])
+        self.assertGreater(by_text_bbox["top_left"][1], by_image["top_left"][1])
+        self.assertLess(by_text_bbox["top_right"][2], by_image["top_right"][2])
 
     def test_parse_roman_numeral_valid(self) -> None:
         self.assertEqual(parse_roman_numeral("x"), 10)

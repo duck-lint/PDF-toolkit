@@ -623,6 +623,7 @@ def main(argv: list[str] | None = None) -> int:
                 page_num_psm=page_num_psm,
                 page_num_max=int(page_numbers_cfg["max_page"]),
                 page_num_parser=str(page_numbers_cfg["parser"]),
+                page_num_relative_to=str(page_numbers_cfg["relative_to"]),
                 page_num_roman_whitelist=str(page_numbers_cfg["roman_whitelist"]),
                 page_num_prep_scale=int(page_numbers_cfg["prep_scale"]),
                 page_num_bin_threshold=int(page_numbers_cfg["bin_threshold"]),
