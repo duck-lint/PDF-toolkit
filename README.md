@@ -202,3 +202,13 @@ Run the minimal unit tests:
 ```powershell
 python -m unittest discover -s tests -p "test_*.py"
 ```
+
+## Create a clean zip
+
+Prefer creating release zips from git history:
+
+```powershell
+git archive --format=zip --output pdf_toolkit.zip HEAD
+```
+
+If you zip manually, delete `__pycache__/` folders and `*.pyc` files first.

@@ -12,7 +12,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+import sys
+from typing import Any, Dict, List, TextIO
 
 from .utils import ensure_dir
 
@@ -38,6 +39,8 @@ class ManifestRecorder:
     inputs: Dict[str, Any]
     outputs: Dict[str, Any]
     dry_run: bool
+    verbosity: str = "normal"
+    console_stream: TextIO = field(default_factory=lambda: sys.stderr)
     started_at: str = field(default_factory=_iso_now)
     logs: List[Dict[str, Any]] = field(default_factory=list)
     actions: List[Dict[str, Any]] = field(default_factory=list)
@@ -47,7 +50,18 @@ class ManifestRecorder:
 
         entry = {"timestamp": _iso_now(), "level": level, "message": message}
         self.logs.append(entry)
-        print(message)
+
+        should_print = False
+        if self.verbosity == "quiet":
+            should_print = level == "error"
+        elif self.verbosity == "verbose":
+            should_print = True
+        else:
+            should_print = level in {"info", "warning", "error"}
+
+        if should_print:
+            rendered = f"[{level}] {message}" if self.verbosity == "verbose" else message
+            print(rendered, file=self.console_stream)
 
     def add_action(self, action: str, status: str, **details: Any) -> None:
         """

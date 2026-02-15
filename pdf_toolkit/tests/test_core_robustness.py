@@ -4,6 +4,7 @@ Extra robustness tests for core helper behavior and manifest structure.
 
 from __future__ import annotations
 
+import io
 import json
 import shutil
 from pathlib import Path
@@ -134,6 +135,46 @@ class ManifestStructureTests(unittest.TestCase):
             loaded = json.loads(out_path.read_text(encoding="utf-8"))
             self.assertEqual(loaded["summary"]["parts"], 1)
             self.assertEqual(loaded["action_counts"].get("written"), 1)
+
+
+class ManifestVerbosityTests(unittest.TestCase):
+    def _recorder(self, verbosity: str, stream: io.StringIO) -> ManifestRecorder:
+        return ManifestRecorder(
+            tool_name="pdf_toolkit",
+            tool_version="0.0.0",
+            command="pdf_toolkit",
+            options={},
+            inputs={},
+            outputs={},
+            dry_run=True,
+            verbosity=verbosity,
+            console_stream=stream,
+        )
+
+    def test_quiet_suppresses_info_but_prints_error(self) -> None:
+        stream = io.StringIO()
+        recorder = self._recorder("quiet", stream)
+        recorder.log("hello-info")
+        recorder.log("hello-error", level="error")
+        output = stream.getvalue()
+        self.assertNotIn("hello-info", output)
+        self.assertIn("hello-error", output)
+        self.assertEqual(len(recorder.logs), 2)
+
+    def test_normal_prints_info_but_not_debug(self) -> None:
+        stream = io.StringIO()
+        recorder = self._recorder("normal", stream)
+        recorder.log("hello-info")
+        recorder.log("hello-debug", level="debug")
+        output = stream.getvalue()
+        self.assertIn("hello-info", output)
+        self.assertNotIn("hello-debug", output)
+
+    def test_verbose_prints_debug_with_level_prefix(self) -> None:
+        stream = io.StringIO()
+        recorder = self._recorder("verbose", stream)
+        recorder.log("hello-debug", level="debug")
+        self.assertIn("[debug] hello-debug", stream.getvalue())
 
 
 if __name__ == "__main__":

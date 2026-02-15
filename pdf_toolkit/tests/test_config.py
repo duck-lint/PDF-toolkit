@@ -19,6 +19,7 @@ from src.pdf_toolkit.cli import (
     _build_parser,
     _extract_page_images_section,
     _require_bool,
+    _verbosity_from_args,
     main,
 )
 from src.pdf_toolkit.config import DEFAULT_PAGE_IMAGES, deep_merge
@@ -161,6 +162,40 @@ class PageImagesConfigTests(unittest.TestCase):
                 )
             self.assertEqual(rc, 2)
             self.assertIn("config.overwrite must be true or false.", err.getvalue())
+
+    def test_global_quiet_and_verbose_flags(self) -> None:
+        parser = _build_parser()
+        quiet_args = parser.parse_args(
+            ["--quiet", "split", "--pdf", "in.pdf", "--out_dir", "out", "--ranges", "1-1"]
+        )
+        self.assertEqual(_verbosity_from_args(quiet_args), "quiet")
+
+        verbose_args = parser.parse_args(
+            ["--verbose", "split", "--pdf", "in.pdf", "--out_dir", "out", "--ranges", "1-1"]
+        )
+        self.assertEqual(_verbosity_from_args(verbose_args), "verbose")
+
+        normal_args = parser.parse_args(
+            ["split", "--pdf", "in.pdf", "--out_dir", "out", "--ranges", "1-1"]
+        )
+        self.assertEqual(_verbosity_from_args(normal_args), "normal")
+
+    def test_global_quiet_and_verbose_are_mutually_exclusive(self) -> None:
+        parser = _build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "--quiet",
+                    "--verbose",
+                    "split",
+                    "--pdf",
+                    "in.pdf",
+                    "--out_dir",
+                    "out",
+                    "--ranges",
+                    "1-1",
+                ]
+            )
 
 
 if __name__ == "__main__":

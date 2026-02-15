@@ -5,17 +5,17 @@ pdf_toolkit-workroot/
 _workroot_transcripts/
 
 # Python build/runtime artifacts
-__pycache__/
-*.pyc
+**/__pycache__/
+**/*.pyc
 *.pyo
 *.pyd
 *.egg-info/
 build/
 dist/
 
-# Project-local test scratch space
+# Local test scratch space and archives
 .tmp_tests/
-pdf_toolkit/.tmp_tests/
+*.zip
 
 # OS junk
 .DS_Store

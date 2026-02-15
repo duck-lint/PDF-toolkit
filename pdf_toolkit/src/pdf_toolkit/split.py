@@ -66,23 +66,33 @@ def split_pdf(
     You can choose either explicit ranges or auto chunking.
     """
 
-    ensure_file_exists(pdf_path, "PDF")
-    ensure_dir_path(out_dir, "Output directory")
-
-    if ranges_spec and pages_per_file:
-        raise UserError("Use either --ranges or --pages_per_file, not both.")
-
     recorder = ManifestRecorder(
         tool_name="pdf_toolkit",
-        tool_version=options.get("version", "0.0.0"),
+        tool_version=str(options.get("version", "0.0.0")),
         command=command_string,
         options=options,
         inputs={"pdf": str(pdf_path)},
         outputs={"out_dir": str(out_dir), "manifest": str(manifest_path)},
         dry_run=dry_run,
+        verbosity=str(options.get("verbosity", "normal")),
     )
 
+    total_pages = 0
+    num_parts = 0
+    error_message: str | None = None
+    summary: Dict[str, object] = {
+        "parts": 0,
+        "page_count": 0,
+        "output_dir": str(out_dir),
+    }
+
     try:
+        ensure_file_exists(pdf_path, "PDF")
+        ensure_dir_path(out_dir, "Output directory")
+
+        if ranges_spec and pages_per_file:
+            raise UserError("Use either --ranges or --pages_per_file, not both.")
+
         with fitz.open(pdf_path) as doc:
             total_pages = doc.page_count
             ensure_pdf_has_pages(total_pages)
@@ -151,12 +161,20 @@ def split_pdf(
                     pages=human_range,
                     output=str(output_path),
                 )
-    except Exception as exc:  # pragma: no cover - PyMuPDF errors
-        raise UserError(f"Failed to split PDF {pdf_path}: {exc}") from exc
-
-    summary = {
-        "parts": num_parts,
-        "page_count": total_pages,
-        "output_dir": str(out_dir),
-    }
-    recorder.write_manifest(manifest_path, summary)
+    except Exception as exc:  # pragma: no cover - includes validation and PyMuPDF errors
+        if isinstance(exc, UserError):
+            error_message = str(exc)
+        else:
+            error_message = f"Failed to split PDF {pdf_path}: {exc}"
+        recorder.log(error_message, level="error")
+        recorder.add_action(action="split", status="error", error=error_message)
+        if isinstance(exc, UserError):
+            raise
+        raise UserError(error_message) from exc
+    finally:
+        summary["parts"] = num_parts
+        summary["page_count"] = total_pages
+        summary["status"] = "error" if error_message else "ok"
+        if error_message is not None:
+            summary["error"] = error_message
+        recorder.write_manifest(manifest_path, summary)

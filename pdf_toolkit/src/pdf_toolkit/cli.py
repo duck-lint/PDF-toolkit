@@ -116,6 +116,16 @@ def _dump_default_page_images_config() -> None:
     print(dump_default_page_images_yaml())
 
 
+def _verbosity_from_args(args: argparse.Namespace) -> str:
+    """Resolve global verbosity mode from top-level flags."""
+
+    if getattr(args, "quiet", False):
+        return "quiet"
+    if getattr(args, "verbose", False):
+        return "verbose"
+    return "normal"
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pdf_toolkit",
@@ -124,6 +134,17 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--version", action="version", version=__version__)
+    verbosity_group = parser.add_mutually_exclusive_group()
+    verbosity_group.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress non-error console logs.",
+    )
+    verbosity_group.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show debug-level console logs.",
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -402,6 +423,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         command_string = _command_string(_command_argv_for_manifest(argv))
         options = _options_for_manifest(args)
+        verbosity = _verbosity_from_args(args)
+        options["verbosity"] = verbosity
 
         if args.command == "render":
             from .render import render_pdf_to_pngs
@@ -519,6 +542,7 @@ def main(argv: list[str] | None = None) -> int:
 
             page_options = deep_merge(effective_cfg, {})
             page_options["version"] = __version__
+            page_options["verbosity"] = verbosity
             if config_path is not None:
                 page_options["config_path"] = str(config_path)
 
