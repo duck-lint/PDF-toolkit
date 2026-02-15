@@ -31,32 +31,6 @@ DEFAULT_PAGE_IMAGES: dict[str, Any] = {
     "inplace": False,
     "dry_run": False,
     "manifest": None,
-    "page_numbers": {
-        "enabled": False,
-        "relative_to": "image",
-        "anchors": ["top"],
-        "positions": ["right", "left"],
-        "allow_positions": ["right", "left"],
-        "parser": "auto",
-        "roman_whitelist": "IVXLCDMivxlcdm",
-        "strip_frac": 0.12,
-        "strip_y_offset_px": 0,
-        "corner_w_frac": 0.28,
-        "corner_h_frac": 0.45,
-        "center_w_frac": 0.20,
-        "psm_candidates": [7, 8, 6, 11],
-        "max_page": 5000,
-        "prep_scale": 2,
-        "bin_threshold": 160,
-        "invert": False,
-        "debug_crops": False,
-        "dark_bbox": {
-            "enabled": False,
-            "threshold": 170,
-            "pad_px": 2,
-            "min_area_frac": 0.005,
-        },
-    },
 }
 
 

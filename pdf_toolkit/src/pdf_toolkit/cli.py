@@ -60,14 +60,11 @@ PAGE_IMAGES_EXAMPLES = """Examples:
   python -m pdf_toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages_single" --glob "*.png" --mode auto --debug
   python -m pdf_toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages_single" --mode split --overwrite
   python -m pdf_toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages" --mode crop --inplace --overwrite
-  python -m pdf_toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages_single" --extract_page_numbers --page_num_debug
   python -m pdf_toolkit page-images --dump-default-config
   python -m pdf_toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages_single" --config "configs\\page_images.default.yaml"
 """
 
 PAGE_IMAGES_TOP_LEVEL_KEYS = set(DEFAULT_PAGE_IMAGES.keys())
-PAGE_IMAGES_NUMBER_KEYS = set(DEFAULT_PAGE_IMAGES["page_numbers"].keys())
-PAGE_IMAGES_DARK_BBOX_KEYS = set(DEFAULT_PAGE_IMAGES["page_numbers"]["dark_bbox"].keys())
 
 
 def _extract_page_images_section(loaded: Dict[str, Any]) -> Dict[str, Any]:
@@ -83,20 +80,6 @@ def _extract_page_images_section(loaded: Dict[str, Any]) -> Dict[str, Any]:
         section = loaded
         validate_keys(section, PAGE_IMAGES_TOP_LEVEL_KEYS, "config")
 
-    page_numbers = section.get("page_numbers")
-    if page_numbers is not None:
-        if not isinstance(page_numbers, dict):
-            raise UserError("config.page_numbers must be a mapping/object.")
-        validate_keys(page_numbers, PAGE_IMAGES_NUMBER_KEYS, "config.page_numbers")
-        dark_bbox = page_numbers.get("dark_bbox")
-        if dark_bbox is not None:
-            if not isinstance(dark_bbox, dict):
-                raise UserError("config.page_numbers.dark_bbox must be a mapping/object.")
-            validate_keys(
-                dark_bbox,
-                PAGE_IMAGES_DARK_BBOX_KEYS,
-                "config.page_numbers.dark_bbox",
-            )
     return section
 
 
@@ -116,32 +99,10 @@ def _build_page_images_effective_config(
     raw_args = vars(args)
     cli_top_overrides: Dict[str, Any] = {}
     for key in PAGE_IMAGES_TOP_LEVEL_KEYS:
-        if key == "page_numbers":
-            continue
         if key in raw_args:
             cli_top_overrides[key] = raw_args[key]
 
-    cli_page_num_overrides: Dict[str, Any] = {}
-    legacy_map = {
-        "extract_page_numbers": "enabled",
-        "page_num_strip_frac": "strip_frac",
-        "page_num_corner_w_frac": "corner_w_frac",
-        "page_num_corner_h_frac": "corner_h_frac",
-        "page_num_max": "max_page",
-        "page_num_debug": "debug_crops",
-    }
-    for legacy_key, cfg_key in legacy_map.items():
-        if legacy_key in raw_args:
-            cli_page_num_overrides[cfg_key] = raw_args[legacy_key]
-    if "page_num_psm" in raw_args:
-        cli_page_num_overrides["psm_candidates"] = [raw_args["page_num_psm"]]
-
-    combined_cli: Dict[str, Any] = {}
-    combined_cli.update(cli_top_overrides)
-    if cli_page_num_overrides:
-        combined_cli["page_numbers"] = cli_page_num_overrides
-
-    effective = deep_merge(effective, combined_cli)
+    effective = deep_merge(effective, cli_top_overrides)
     return effective, config_path
 
 
@@ -371,48 +332,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Write debug overlays to out_dir\\_debug\\.",
     )
     page_images.add_argument(
-        "--extract_page_numbers",
-        action="store_true",
-        default=argparse.SUPPRESS,
-        help="Attempt OCR of printed page numbers near top corners.",
-    )
-    page_images.add_argument(
-        "--page_num_strip_frac",
-        type=float,
-        default=argparse.SUPPRESS,
-        help="Top strip fraction searched for printed page numbers.",
-    )
-    page_images.add_argument(
-        "--page_num_corner_w_frac",
-        type=float,
-        default=argparse.SUPPRESS,
-        help="Corner crop width fraction for page-number OCR.",
-    )
-    page_images.add_argument(
-        "--page_num_corner_h_frac",
-        type=float,
-        default=argparse.SUPPRESS,
-        help="Corner crop height fraction within the top strip.",
-    )
-    page_images.add_argument(
-        "--page_num_psm",
-        type=int,
-        default=argparse.SUPPRESS,
-        help="Tesseract page segmentation mode for page-number OCR.",
-    )
-    page_images.add_argument(
-        "--page_num_max",
-        type=int,
-        default=argparse.SUPPRESS,
-        help="Maximum accepted printed page number.",
-    )
-    page_images.add_argument(
-        "--page_num_debug",
-        action="store_true",
-        default=argparse.SUPPRESS,
-        help="Write page-number corner crops to out_dir\\_debug\\.",
-    )
-    page_images.add_argument(
         "--overwrite",
         action="store_true",
         default=argparse.SUPPRESS,
@@ -569,15 +488,6 @@ def main(argv: list[str] | None = None) -> int:
                 )
 
             effective_cfg, config_path = _build_page_images_effective_config(args)
-            page_numbers_cfg = effective_cfg["page_numbers"]
-            psm_candidates = page_numbers_cfg.get("psm_candidates", [7])
-            if not isinstance(psm_candidates, list) or not psm_candidates:
-                raise UserError("page_numbers.psm_candidates must be a non-empty list.")
-            page_num_psm = int(psm_candidates[0])
-            page_num_positions = page_numbers_cfg.get("allow_positions")
-            if page_num_positions is None:
-                page_num_positions = page_numbers_cfg.get("positions", ["right", "left"])
-
             in_dir = normalize_path(args.in_dir)
             out_dir = normalize_path(args.out_dir)
             manifest_value = effective_cfg.get("manifest")
@@ -611,26 +521,6 @@ def main(argv: list[str] | None = None) -> int:
                 command_string=command_string,
                 options=page_options,
                 debug=bool(effective_cfg["debug"]),
-                extract_page_numbers=bool(page_numbers_cfg["enabled"]),
-                page_num_anchors=[str(v) for v in page_numbers_cfg["anchors"]],
-                page_num_positions=[str(v) for v in page_num_positions],
-                page_num_strip_frac=float(page_numbers_cfg["strip_frac"]),
-                page_num_strip_y_offset_px=int(page_numbers_cfg["strip_y_offset_px"]),
-                page_num_corner_w_frac=float(page_numbers_cfg["corner_w_frac"]),
-                page_num_corner_h_frac=float(page_numbers_cfg["corner_h_frac"]),
-                page_num_center_w_frac=float(page_numbers_cfg["center_w_frac"]),
-                page_num_psm_candidates=[int(v) for v in page_numbers_cfg["psm_candidates"]],
-                page_num_psm=page_num_psm,
-                page_num_max=int(page_numbers_cfg["max_page"]),
-                page_num_parser=str(page_numbers_cfg["parser"]),
-                page_num_relative_to=str(page_numbers_cfg["relative_to"]),
-                page_num_roman_whitelist=str(page_numbers_cfg["roman_whitelist"]),
-                page_num_prep_scale=int(page_numbers_cfg["prep_scale"]),
-                page_num_bin_threshold=int(page_numbers_cfg["bin_threshold"]),
-                page_num_invert=bool(page_numbers_cfg["invert"]),
-                page_num_dark_bbox=dict(page_numbers_cfg["dark_bbox"]),
-                page_num_debug_crops=bool(page_numbers_cfg["debug_crops"]),
-                page_num_debug=bool(page_numbers_cfg["debug_crops"]),
             )
             return 0
 

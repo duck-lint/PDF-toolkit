@@ -13,27 +13,3 @@ page_images:
   inplace: false
   dry_run: false
   manifest: null
-  page_numbers:
-    enabled: true
-    relative_to: image
-    anchors: [top]
-    positions: [right, left]
-    allow_positions: [left, right]
-    parser: auto
-    roman_whitelist: "IVXLCDMivxlcdm"
-    strip_frac: 0.14
-    strip_y_offset_px: 35
-    corner_w_frac: 0.14
-    corner_h_frac: 0.85
-    center_w_frac: 0.20
-    psm_candidates: [7, 8, 6, 11]
-    max_page: 5000
-    prep_scale: 2
-    bin_threshold: 160
-    invert: false
-    debug_crops: true
-    dark_bbox:
-      enabled: true
-      threshold: 150
-      pad_px: 10
-      min_area_frac: 0.001
