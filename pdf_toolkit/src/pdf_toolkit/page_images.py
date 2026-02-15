@@ -1,4 +1,4 @@
-"""
+﻿"""
 Split spread scans into single-page images and crop page bounds.
 
 Why this module exists:
@@ -9,411 +9,16 @@ Why this module exists:
 
 from __future__ import annotations
 
-import re
-import shutil
-import subprocess
-import sys
-import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
-from PIL import Image, ImageDraw, ImageOps
+from PIL import Image, ImageDraw
 
 from .manifest import ManifestRecorder
 from .utils import UserError, ensure_dir, ensure_dir_path
 
 
 BBox = Tuple[int, int, int, int]
-PAGE_NUMBER_REGEX = re.compile(r"\d{1,4}")
-ROMAN_CANONICAL_REGEX = re.compile(
-    r"^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$"
-)
-VALID_PAGE_NUM_ANCHORS = {"top", "bottom"}
-VALID_PAGE_NUM_POSITIONS = {"left", "center", "right"}
-VALID_PAGE_NUM_PARSERS = {"auto", "arabic", "roman"}
-VALID_PAGE_NUM_RELATIVE_TO = {"image", "text_bbox"}
-
-
-def which_tesseract() -> Optional[str]:
-    """Return the tesseract executable path if available in PATH."""
-
-    return shutil.which("tesseract")
-
-
-def ocr_text_tesseract(
-    image: Image.Image,
-    psm: int,
-    tesseract_exe: str | Path,
-    whitelist: str,
-) -> str:
-    """Run tesseract CLI with a custom character whitelist and return stdout text."""
-
-    ocr_text_tesseract.last_error = None  # type: ignore[attr-defined]
-    tmp_path: Optional[Path] = None
-
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as handle:
-            tmp_path = Path(handle.name)
-            image.save(handle, format="PNG")
-
-        cmd = [
-            str(tesseract_exe),
-            str(tmp_path),
-            "stdout",
-            "--psm",
-            str(psm),
-            "-l",
-            "eng",
-            "-c",
-            f"tessedit_char_whitelist={whitelist}",
-        ]
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            stderr = result.stderr.strip()
-            stdout = result.stdout.strip()
-            details = stderr or stdout or f"exit code {result.returncode}"
-            ocr_text_tesseract.last_error = f"tesseract failed: {details}"  # type: ignore[attr-defined]
-            return ""
-        return result.stdout.strip()
-    except Exception as exc:  # pragma: no cover - subprocess OS errors
-        ocr_text_tesseract.last_error = f"tesseract invocation error: {exc}"  # type: ignore[attr-defined]
-        return ""
-    finally:
-        if tmp_path is not None and tmp_path.exists():
-            tmp_path.unlink(missing_ok=True)
-
-
-ocr_text_tesseract.last_error = None  # type: ignore[attr-defined]
-
-
-def _prepare_for_ocr(
-    crop_image: Image.Image,
-    prep_scale: int,
-    bin_threshold: int,
-    invert: bool,
-) -> Image.Image:
-    """Normalize a crop for digits-only OCR using configurable Pillow operations."""
-
-    gray = crop_image.convert("L")
-    gray = ImageOps.autocontrast(gray)
-    scale = max(1, int(prep_scale))
-    if scale > 1:
-        gray = gray.resize(
-            (max(1, gray.width * scale), max(1, gray.height * scale)),
-            Image.Resampling.LANCZOS,
-        )
-    if invert:
-        gray = ImageOps.invert(gray)
-    threshold = int(bin_threshold)
-    return gray.point(lambda value: 255 if value >= threshold else 0)
-
-
-def build_page_num_regions(
-    width: int,
-    height: int,
-    cfg: Dict[str, Any],
-    frame_bbox: Optional[BBox] = None,
-) -> List[Tuple[str, BBox]]:
-    """
-    Build named OCR regions from anchor/position configuration.
-
-    Region names follow: <anchor>_<position>, such as top_left or bottom_center.
-    """
-
-    anchors = list(cfg["anchors"])
-    positions = list(cfg.get("allow_positions", cfg["positions"]))
-
-    if frame_bbox is None:
-        frame_left, frame_top, frame_right, frame_bottom = 0, 0, width, height
-    else:
-        left, top, right, bottom = frame_bbox
-        frame_left = max(0, min(width, int(left)))
-        frame_top = max(0, min(height, int(top)))
-        frame_right = max(frame_left, min(width, int(right)))
-        frame_bottom = max(frame_top, min(height, int(bottom)))
-        if frame_right <= frame_left or frame_bottom <= frame_top:
-            frame_left, frame_top, frame_right, frame_bottom = 0, 0, width, height
-
-    frame_w = max(1, frame_right - frame_left)
-    frame_h = max(1, frame_bottom - frame_top)
-
-    strip_h = max(1, int(frame_h * float(cfg["strip_frac"])))
-    strip_h = min(frame_h, strip_h)
-    region_h = max(1, int(strip_h * float(cfg["corner_h_frac"])))
-    region_h = min(frame_h, region_h)
-    strip_y_offset_px = max(0, int(cfg.get("strip_y_offset_px", 0)))
-
-    corner_w = max(1, int(frame_w * float(cfg["corner_w_frac"])))
-    corner_w = min(frame_w, corner_w)
-    center_w = max(1, int(frame_w * float(cfg["center_w_frac"])))
-    center_w = min(frame_w, center_w)
-
-    regions: List[Tuple[str, BBox]] = []
-    for anchor in anchors:
-        if anchor == "top":
-            strip_y0_local = min(max(0, strip_y_offset_px), max(0, frame_h - 1))
-        else:
-            strip_y0_local = max(0, frame_h - strip_h)
-        y0 = frame_top + strip_y0_local
-        y1 = min(frame_bottom, y0 + region_h)
-        if y1 <= y0:
-            y1 = min(frame_bottom, y0 + 1)
-
-        for position in positions:
-            if position == "left":
-                x0, x1 = frame_left, frame_left + corner_w
-            elif position == "right":
-                x0, x1 = frame_right - corner_w, frame_right
-            else:
-                x0 = frame_left + max(0, (frame_w - center_w) // 2)
-                x1 = min(frame_right, x0 + center_w)
-            regions.append((f"{anchor}_{position}", (x0, y0, x1, y1)))
-    return regions
-
-
-def _compute_text_bbox_for_page(page_img: Image.Image, dark_bbox_cfg: Dict[str, Any]) -> Optional[BBox]:
-    """Estimate a dark-pixel text block bbox for optional page-number region anchoring."""
-
-    gray = page_img.convert("L")
-    threshold = int(dark_bbox_cfg.get("threshold", 170))
-    mask = gray.point(lambda value: 255 if value <= threshold else 0)
-    bbox = mask.getbbox()
-    if bbox is None:
-        return None
-
-    left, top, right, bottom = bbox
-    bbox_area = max(0, right - left) * max(0, bottom - top)
-    image_area = max(1, page_img.width * page_img.height)
-    min_area_frac = float(dark_bbox_cfg.get("min_area_frac", 0.0))
-    if bbox_area < int(min_area_frac * image_area):
-        return None
-    return bbox
-
-
-def _extract_candidate(raw_text: str) -> Optional[int]:
-    """Extract the first 1-4 digit token from OCR output."""
-
-    match = PAGE_NUMBER_REGEX.search(raw_text)
-    if match is None:
-        return None
-    return int(match.group(0))
-
-
-def _extract_roman_letters(raw_text: str, whitelist: str) -> str:
-    """Keep only roman numeral letters present in whitelist, preserving case."""
-
-    allowed = set(whitelist)
-    return "".join(char for char in raw_text if char in allowed)
-
-
-def parse_roman_numeral(value: str) -> Optional[int]:
-    """Parse a strict Roman numeral (canonical subtractive notation)."""
-
-    roman = value.strip().upper()
-    if not roman:
-        return None
-    if not ROMAN_CANONICAL_REGEX.fullmatch(roman):
-        return None
-
-    table = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
-    total = 0
-    idx = 0
-    while idx < len(roman):
-        current = table[roman[idx]]
-        if idx + 1 < len(roman):
-            nxt = table[roman[idx + 1]]
-            if current < nxt:
-                total += nxt - current
-                idx += 2
-                continue
-        total += current
-        idx += 1
-    return total
-
-
-def _tighten_to_dark_bbox(crop: Image.Image, dark_bbox_cfg: Dict[str, Any]) -> Image.Image:
-    """Optionally tighten OCR region to dark-pixel bbox to avoid header noise."""
-
-    if not dark_bbox_cfg.get("enabled", False):
-        return crop
-
-    gray = crop.convert("L")
-    threshold = int(dark_bbox_cfg["threshold"])
-    mask = gray.point(lambda value: 255 if value <= threshold else 0)
-    bbox = mask.getbbox()
-    if bbox is None:
-        return crop
-
-    left, top, right, bottom = bbox
-    bbox_area = max(0, right - left) * max(0, bottom - top)
-    crop_area = max(1, crop.width * crop.height)
-    min_area_frac = float(dark_bbox_cfg["min_area_frac"])
-    if bbox_area < int(min_area_frac * crop_area):
-        return crop
-
-    pad_px = int(dark_bbox_cfg["pad_px"])
-    left = max(0, left - pad_px)
-    top = max(0, top - pad_px)
-    right = min(crop.width, right + pad_px)
-    bottom = min(crop.height, bottom + pad_px)
-    if right <= left or bottom <= top:
-        return crop
-    return crop.crop((left, top, right, bottom))
-
-
-def extract_printed_page_number(
-    page_img: Image.Image,
-    cfg: Dict[str, Any],
-    tesseract_exe: str | Path | None = None,
-) -> Dict[str, Any]:
-    """
-    Attempt to extract printed page number from configurable anchor/position regions.
-
-    Returns fields for manifest recording:
-    - printed_page: int | None
-    - region_used: str | None
-    - psm_used: int | None
-    - raw_by_region: dict[str, str]
-    - legacy compatibility fields (corner, corner_used, raw_left, raw_right)
-    - reason: nullable failure reason
-    """
-
-    result: Dict[str, Any] = {
-        "printed_page": None,
-        "printed_page_text": None,
-        "printed_page_kind": None,
-        "region_used": None,
-        "psm_used": None,
-        "raw_by_region": {},
-        "corner": None,
-        "corner_used": None,
-        "raw_left": "",
-        "raw_right": "",
-        "reason": None,
-    }
-
-    dark_bbox_cfg = dict(cfg.get("dark_bbox", {}))
-    relative_to = str(cfg.get("relative_to", "image")).lower()
-    frame_bbox: Optional[BBox] = None
-    if relative_to == "text_bbox":
-        frame_bbox = _compute_text_bbox_for_page(page_img, dark_bbox_cfg)
-    regions = build_page_num_regions(page_img.width, page_img.height, cfg, frame_bbox=frame_bbox)
-    debug_dir = cfg.get("debug_dir")
-    debug_base = cfg.get("debug_base")
-    write_debug = bool(cfg.get("debug_crops"))
-    if write_debug and isinstance(debug_dir, Path) and isinstance(debug_base, str):
-        for region_name, bbox in regions:
-            page_img.crop(bbox).save(debug_dir / f"{debug_base}__{region_name}.png")
-
-    resolved_tesseract = tesseract_exe if tesseract_exe is not None else which_tesseract()
-    if not resolved_tesseract:
-        result["reason"] = "no_tesseract"
-        return result
-
-    psm_candidates = [int(value) for value in cfg["psm_candidates"]]
-    max_page = int(cfg["max_page"])
-    parser_mode = str(cfg.get("parser", "auto")).lower()
-    roman_whitelist = str(cfg.get("roman_whitelist", "IVXLCDMivxlcdm"))
-    prep_scale = int(cfg["prep_scale"])
-    bin_threshold = int(cfg["bin_threshold"])
-    invert = bool(cfg["invert"])
-
-    saw_out_of_range = False
-    error_messages: List[str] = []
-
-    for region_name, bbox in regions:
-        crop = _tighten_to_dark_bbox(page_img.crop(bbox), dark_bbox_cfg)
-        last_raw = ""
-        for psm in psm_candidates:
-            prepped = _prepare_for_ocr(crop, prep_scale, bin_threshold, invert)
-
-            if parser_mode in {"auto", "arabic"}:
-                arabic_raw = ocr_text_tesseract(
-                    prepped,
-                    psm,
-                    resolved_tesseract,
-                    "0123456789",
-                )
-                last_raw = arabic_raw
-                run_error = getattr(ocr_text_tesseract, "last_error", None)
-                if run_error:
-                    error_messages.append(str(run_error))
-
-                arabic_candidate = _extract_candidate(arabic_raw)
-                if arabic_candidate is not None:
-                    if 1 <= arabic_candidate <= max_page:
-                        corner: Optional[str] = None
-                        if region_name.endswith("_left"):
-                            corner = "left"
-                        elif region_name.endswith("_right"):
-                            corner = "right"
-
-                        result["printed_page"] = arabic_candidate
-                        result["printed_page_text"] = str(arabic_candidate)
-                        result["printed_page_kind"] = "arabic"
-                        result["region_used"] = region_name
-                        result["psm_used"] = psm
-                        result["corner"] = corner
-                        result["corner_used"] = corner
-                        result["raw_by_region"][region_name] = arabic_raw
-                        result["raw_left"] = str(result["raw_by_region"].get("top_left", ""))
-                        result["raw_right"] = str(result["raw_by_region"].get("top_right", ""))
-                        return result
-                    saw_out_of_range = True
-
-            if parser_mode in {"auto", "roman"}:
-                roman_raw = ocr_text_tesseract(
-                    prepped,
-                    psm,
-                    resolved_tesseract,
-                    roman_whitelist,
-                )
-                last_raw = roman_raw
-                run_error = getattr(ocr_text_tesseract, "last_error", None)
-                if run_error:
-                    error_messages.append(str(run_error))
-
-                roman_text = _extract_roman_letters(roman_raw, roman_whitelist)
-                roman_candidate = parse_roman_numeral(roman_text)
-                if roman_candidate is not None:
-                    if 1 <= roman_candidate <= max_page:
-                        corner = None
-                        if region_name.endswith("_left"):
-                            corner = "left"
-                        elif region_name.endswith("_right"):
-                            corner = "right"
-
-                        result["printed_page"] = roman_candidate
-                        result["printed_page_text"] = roman_text
-                        result["printed_page_kind"] = "roman"
-                        result["region_used"] = region_name
-                        result["psm_used"] = psm
-                        result["corner"] = corner
-                        result["corner_used"] = corner
-                        result["raw_by_region"][region_name] = roman_raw
-                        result["raw_left"] = str(result["raw_by_region"].get("top_left", ""))
-                        result["raw_right"] = str(result["raw_by_region"].get("top_right", ""))
-                        return result
-                    saw_out_of_range = True
-
-        result["raw_by_region"][region_name] = last_raw
-
-    result["raw_left"] = str(result["raw_by_region"].get("top_left", ""))
-    result["raw_right"] = str(result["raw_by_region"].get("top_right", ""))
-
-    if saw_out_of_range:
-        result["reason"] = "out_of_range"
-    elif error_messages:
-        result["reason"] = "tesseract_failed"
-        result["tesseract_error"] = "; ".join(error_messages)
-    else:
-        result["reason"] = "no_digits"
-    return result
 
 
 def _collect_image_files(in_dir: Path, pattern: str) -> List[Path]:
@@ -431,24 +36,6 @@ def _validate_options(
     crop_threshold: int,
     pad_px: int,
     min_area_frac: float,
-    page_num_enabled: bool,
-    page_num_anchors: List[str],
-    page_num_positions: List[str],
-    page_num_parser: str,
-    page_num_relative_to: str,
-    page_num_roman_whitelist: str,
-    page_num_strip_frac: float,
-    page_num_strip_y_offset_px: int,
-    page_num_corner_w_frac: float,
-    page_num_corner_h_frac: float,
-    page_num_center_w_frac: float,
-    page_num_psm_candidates: List[int],
-    page_num_max: int,
-    page_num_prep_scale: int,
-    page_num_bin_threshold: int,
-    page_num_invert: bool,
-    page_num_dark_bbox: Dict[str, Any],
-    page_num_debug_crops: bool,
 ) -> None:
     """Validate user-facing options and raise clear errors."""
 
@@ -468,76 +55,6 @@ def _validate_options(
         raise UserError("--pad_px must be >= 0.")
     if min_area_frac <= 0 or min_area_frac > 1:
         raise UserError("--min_area_frac must be in the range (0, 1].")
-    if not isinstance(page_num_enabled, bool):
-        raise UserError("page_numbers.enabled must be true or false.")
-    if not page_num_anchors:
-        raise UserError("page_numbers.anchors must be a non-empty list.")
-    invalid_anchors = [anchor for anchor in page_num_anchors if anchor not in VALID_PAGE_NUM_ANCHORS]
-    if invalid_anchors:
-        raise UserError(
-            f"page_numbers.anchors contains invalid value(s): {invalid_anchors}. "
-            f"Allowed: {sorted(VALID_PAGE_NUM_ANCHORS)}."
-        )
-    if not page_num_positions:
-        raise UserError("page_numbers.positions must be a non-empty list.")
-    invalid_positions = [
-        position for position in page_num_positions if position not in VALID_PAGE_NUM_POSITIONS
-    ]
-    if invalid_positions:
-        raise UserError(
-            f"page_numbers.positions contains invalid value(s): {invalid_positions}. "
-            f"Allowed: {sorted(VALID_PAGE_NUM_POSITIONS)}."
-        )
-    if page_num_parser not in VALID_PAGE_NUM_PARSERS:
-        raise UserError(
-            f"page_numbers.parser must be one of: {sorted(VALID_PAGE_NUM_PARSERS)}."
-        )
-    if page_num_relative_to not in VALID_PAGE_NUM_RELATIVE_TO:
-        raise UserError(
-            "page_numbers.relative_to must be one of: "
-            f"{sorted(VALID_PAGE_NUM_RELATIVE_TO)}."
-        )
-    if not page_num_roman_whitelist:
-        raise UserError("page_numbers.roman_whitelist must not be empty.")
-    if page_num_strip_frac <= 0 or page_num_strip_frac > 1:
-        raise UserError("--page_num_strip_frac must be in the range (0, 1].")
-    if page_num_strip_y_offset_px < 0:
-        raise UserError("page_numbers.strip_y_offset_px must be >= 0.")
-    if page_num_corner_w_frac <= 0 or page_num_corner_w_frac > 1:
-        raise UserError("--page_num_corner_w_frac must be in the range (0, 1].")
-    if page_num_corner_h_frac <= 0 or page_num_corner_h_frac > 1:
-        raise UserError("--page_num_corner_h_frac must be in the range (0, 1].")
-    if page_num_center_w_frac <= 0 or page_num_center_w_frac > 1:
-        raise UserError("page_numbers.center_w_frac must be in the range (0, 1].")
-    if not page_num_psm_candidates:
-        raise UserError("page_numbers.psm_candidates must be a non-empty list.")
-    if any(int(psm) <= 0 for psm in page_num_psm_candidates):
-        raise UserError("page_numbers.psm_candidates values must all be > 0.")
-    if page_num_max <= 0:
-        raise UserError("--page_num_max must be > 0.")
-    if page_num_prep_scale <= 0:
-        raise UserError("page_numbers.prep_scale must be > 0.")
-    if page_num_bin_threshold < 0 or page_num_bin_threshold > 255:
-        raise UserError("page_numbers.bin_threshold must be in the range [0, 255].")
-    if not isinstance(page_num_invert, bool):
-        raise UserError("page_numbers.invert must be true or false.")
-    if not isinstance(page_num_dark_bbox, dict):
-        raise UserError("page_numbers.dark_bbox must be a mapping/object.")
-    if not isinstance(page_num_dark_bbox.get("enabled", False), bool):
-        raise UserError("page_numbers.dark_bbox.enabled must be true or false.")
-    dark_threshold = int(page_num_dark_bbox.get("threshold", 170))
-    if dark_threshold < 0 or dark_threshold > 255:
-        raise UserError("page_numbers.dark_bbox.threshold must be in the range [0, 255].")
-    dark_pad = int(page_num_dark_bbox.get("pad_px", 0))
-    if dark_pad < 0:
-        raise UserError("page_numbers.dark_bbox.pad_px must be >= 0.")
-    dark_min_area_frac = float(page_num_dark_bbox.get("min_area_frac", 0.0))
-    if dark_min_area_frac <= 0 or dark_min_area_frac > 1:
-        raise UserError(
-            "page_numbers.dark_bbox.min_area_frac must be in the range (0, 1]."
-        )
-    if not isinstance(page_num_debug_crops, bool):
-        raise UserError("page_numbers.debug_crops must be true or false.")
 
 
 def detect_spread(width: int, height: int, split_ratio: float) -> bool:
@@ -722,26 +239,6 @@ def page_images_in_folder(
     command_string: str,
     options: Dict[str, object],
     debug: bool,
-    extract_page_numbers: bool = False,
-    page_num_anchors: Optional[List[str]] = None,
-    page_num_positions: Optional[List[str]] = None,
-    page_num_parser: str = "auto",
-    page_num_relative_to: str = "image",
-    page_num_roman_whitelist: str = "IVXLCDMivxlcdm",
-    page_num_strip_frac: float = 0.12,
-    page_num_strip_y_offset_px: int = 0,
-    page_num_corner_w_frac: float = 0.28,
-    page_num_corner_h_frac: float = 0.45,
-    page_num_center_w_frac: float = 0.20,
-    page_num_psm_candidates: Optional[List[int]] = None,
-    page_num_psm: int = 7,
-    page_num_max: int = 5000,
-    page_num_prep_scale: int = 2,
-    page_num_bin_threshold: int = 160,
-    page_num_invert: bool = False,
-    page_num_dark_bbox: Optional[Dict[str, Any]] = None,
-    page_num_debug_crops: bool = False,
-    page_num_debug: bool = False,
 ) -> None:
     """
     Process page images by optional spread split + page crop.
@@ -755,23 +252,6 @@ def page_images_in_folder(
     if not in_dir.exists() or not in_dir.is_dir():
         raise UserError(f"Input directory not found: {in_dir}")
     ensure_dir_path(out_dir, "Output directory")
-    resolved_anchors = list(page_num_anchors) if page_num_anchors is not None else ["top"]
-    resolved_positions = (
-        list(page_num_positions) if page_num_positions is not None else ["right", "left"]
-    )
-    resolved_psm_candidates = (
-        list(page_num_psm_candidates)
-        if page_num_psm_candidates is not None
-        else [int(page_num_psm)]
-    )
-    resolved_parser = str(page_num_parser).lower()
-    resolved_relative_to = str(page_num_relative_to).lower()
-    resolved_dark_bbox = (
-        dict(page_num_dark_bbox)
-        if page_num_dark_bbox is not None
-        else {"enabled": False, "threshold": 170, "pad_px": 2, "min_area_frac": 0.005}
-    )
-    use_page_num_debug_crops = bool(page_num_debug_crops or page_num_debug)
 
     _validate_options(
         mode=mode,
@@ -782,24 +262,6 @@ def page_images_in_folder(
         crop_threshold=crop_threshold,
         pad_px=pad_px,
         min_area_frac=min_area_frac,
-        page_num_enabled=extract_page_numbers,
-        page_num_anchors=resolved_anchors,
-        page_num_positions=resolved_positions,
-        page_num_parser=resolved_parser,
-        page_num_relative_to=resolved_relative_to,
-        page_num_roman_whitelist=page_num_roman_whitelist,
-        page_num_strip_frac=page_num_strip_frac,
-        page_num_strip_y_offset_px=page_num_strip_y_offset_px,
-        page_num_corner_w_frac=page_num_corner_w_frac,
-        page_num_corner_h_frac=page_num_corner_h_frac,
-        page_num_center_w_frac=page_num_center_w_frac,
-        page_num_psm_candidates=resolved_psm_candidates,
-        page_num_max=page_num_max,
-        page_num_prep_scale=page_num_prep_scale,
-        page_num_bin_threshold=page_num_bin_threshold,
-        page_num_invert=page_num_invert,
-        page_num_dark_bbox=resolved_dark_bbox,
-        page_num_debug_crops=use_page_num_debug_crops,
     )
 
     if out_dir.resolve() == in_dir.resolve():
@@ -814,7 +276,7 @@ def page_images_in_folder(
 
     recorder = ManifestRecorder(
         tool_name="pdf_toolkit",
-        tool_version=options.get("version", "0.0.0"),
+        tool_version=str(options.get("version", "0.0.0")),
         command=command_string,
         options=options,
         inputs={"in_dir": str(in_dir), "glob": pattern, "mode": mode},
@@ -838,20 +300,13 @@ def page_images_in_folder(
     debug_dir = out_dir / "_debug"
     if not dry_run:
         ensure_dir(out_dir, dry_run=False)
-        if debug or use_page_num_debug_crops:
+        if debug:
             ensure_dir(debug_dir, dry_run=False)
 
     processed = 0
     split_count = 0
     crop_only_count = 0
     skipped = 0
-    tesseract_exe = which_tesseract() if extract_page_numbers else None
-    if extract_page_numbers and tesseract_exe is None:
-        print(
-            "WARN: --extract_page_numbers enabled but 'tesseract' not found in PATH; "
-            "printed_page will be null. Install Tesseract and ensure it is on PATH.",
-            file=sys.stderr,
-        )
 
     for position, in_path in enumerate(files, start=1):
         try:
@@ -887,31 +342,11 @@ def page_images_in_folder(
         if any(path.exists() for path in output_paths) and not overwrite:
             skipped += 1
             recorder.log(f"Skipping existing output(s) for {in_path.name}")
-            skipped_outputs: List[object]
-            if extract_page_numbers:
-                skipped_outputs = [
-                    {
-                        "path": str(path),
-                        "printed_page": None,
-                        "printed_page_text": None,
-                        "printed_page_kind": None,
-                        "region_used": None,
-                        "psm_used": None,
-                        "corner": None,
-                        "raw_left": "",
-                        "raw_right": "",
-                        "raw_by_region": {},
-                        "reason": "skipped_existing_output",
-                    }
-                    for path in output_paths
-                ]
-            else:
-                skipped_outputs = [str(path) for path in output_paths]
             recorder.add_action(
                 action="page_images",
                 status="skipped",
                 input=str(in_path),
-                outputs=skipped_outputs,
+                outputs=[str(path) for path in output_paths],
                 mode_used=mode_used,
                 detected_spread=detected_spread,
                 notes=notes + ["One or more outputs already exist."],
@@ -1000,86 +435,9 @@ def page_images_in_folder(
         else:
             crop_only_count += 1
 
-        output_entries: List[object]
-        if extract_page_numbers:
-            output_entries = []
-            for produced, out_path in zip(produced_images, output_paths):
-                debug_base = out_path.stem
-                if use_page_num_debug_crops and dry_run:
-                    debug_frame_bbox: Optional[BBox] = None
-                    if resolved_relative_to == "text_bbox":
-                        debug_frame_bbox = _compute_text_bbox_for_page(produced, resolved_dark_bbox)
-                    debug_regions = build_page_num_regions(
-                        produced.width,
-                        produced.height,
-                        {
-                            "anchors": resolved_anchors,
-                            "allow_positions": resolved_positions,
-                            "strip_frac": page_num_strip_frac,
-                            "strip_y_offset_px": page_num_strip_y_offset_px,
-                            "corner_w_frac": page_num_corner_w_frac,
-                            "corner_h_frac": page_num_corner_h_frac,
-                            "center_w_frac": page_num_center_w_frac,
-                        },
-                        frame_bbox=debug_frame_bbox,
-                    )
-                    planned_debug = [
-                        str(debug_dir / f"{debug_base}__{name}.png") for name, _ in debug_regions
-                    ]
-                    recorder.log(
-                        f"[dry-run] Would write page-number crops: {', '.join(planned_debug)}"
-                    )
-                extraction = extract_printed_page_number(
-                    produced,
-                    {
-                        "anchors": resolved_anchors,
-                        "allow_positions": resolved_positions,
-                        "positions": resolved_positions,
-                        "parser": resolved_parser,
-                        "relative_to": resolved_relative_to,
-                        "roman_whitelist": page_num_roman_whitelist,
-                        "strip_frac": page_num_strip_frac,
-                        "strip_y_offset_px": page_num_strip_y_offset_px,
-                        "corner_w_frac": page_num_corner_w_frac,
-                        "corner_h_frac": page_num_corner_h_frac,
-                        "center_w_frac": page_num_center_w_frac,
-                        "psm_candidates": resolved_psm_candidates,
-                        "max_page": page_num_max,
-                        "prep_scale": page_num_prep_scale,
-                        "bin_threshold": page_num_bin_threshold,
-                        "invert": page_num_invert,
-                        "dark_bbox": resolved_dark_bbox,
-                        "debug_crops": use_page_num_debug_crops and not dry_run,
-                        "debug_dir": debug_dir,
-                        "debug_base": debug_base,
-                    },
-                    tesseract_exe=tesseract_exe,
-                )
-                output_record: Dict[str, object] = {
-                    "path": str(out_path),
-                    "printed_page": extraction["printed_page"],
-                    "printed_page_text": extraction["printed_page_text"],
-                    "printed_page_kind": extraction["printed_page_kind"],
-                    "corner": extraction["corner"],
-                    "region_used": extraction["region_used"],
-                    "psm_used": extraction["psm_used"],
-                    "raw_left": extraction["raw_left"],
-                    "raw_right": extraction["raw_right"],
-                    "raw_by_region": extraction["raw_by_region"],
-                    "reason": extraction["reason"],
-                }
-                if extraction.get("tesseract_error"):
-                    output_record["tesseract_error"] = extraction["tesseract_error"]
-                    notes.append(
-                        f"OCR warning for {out_path.name}: {extraction['tesseract_error']}"
-                    )
-                output_entries.append(output_record)
-        else:
-            output_entries = [str(path) for path in output_paths]
-
         action_details = {
             "input": str(in_path),
-            "outputs": output_entries,
+            "outputs": [str(path) for path in output_paths],
             "mode_used": mode_used,
             "detected_spread": detected_spread,
             "notes": notes,
