@@ -1,4 +1,4 @@
-﻿"""
+"""
 Split spread scans into single-page images and crop page bounds.
 
 Why this module exists:

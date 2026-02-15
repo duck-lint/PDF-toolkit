@@ -6,15 +6,14 @@ These are intentionally small, but they cover the most error-prone bits.
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 import unittest
 
-# Add the repository src/ directory so tests run from a fresh checkout.
-SRC_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(SRC_DIR))
-
-from pdf_toolkit.utils import UserError, parse_page_ranges, parse_page_spec, validate_degrees
+from src.pdf_toolkit.utils import (
+    UserError,
+    parse_page_ranges,
+    parse_page_spec,
+    validate_degrees,
+)
 
 
 class ParsePageSpecTests(unittest.TestCase):

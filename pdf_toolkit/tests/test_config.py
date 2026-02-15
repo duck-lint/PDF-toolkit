@@ -1,4 +1,4 @@
-﻿"""
+"""
 Unit tests for page-images YAML config loading and precedence.
 """
 
@@ -13,11 +13,7 @@ from contextlib import contextmanager
 from contextlib import redirect_stderr, redirect_stdout
 from uuid import uuid4
 
-# Add the repository src/ directory so tests run from a fresh checkout.
-SRC_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(SRC_DIR))
-
-from pdf_toolkit.cli import (
+from src.pdf_toolkit.cli import (
     _command_argv_for_manifest,
     _build_page_images_effective_config,
     _build_parser,
@@ -25,14 +21,14 @@ from pdf_toolkit.cli import (
     _require_bool,
     main,
 )
-from pdf_toolkit.config import DEFAULT_PAGE_IMAGES, deep_merge
-from pdf_toolkit.config import yaml as yaml_module
-from pdf_toolkit.utils import UserError
+from src.pdf_toolkit.config import DEFAULT_PAGE_IMAGES, deep_merge
+from src.pdf_toolkit.config import yaml as yaml_module
+from src.pdf_toolkit.utils import UserError
 
 
 @contextmanager
 def _workspace_temp_dir():
-    root = Path(__file__).resolve().parents[2] / ".tmp_tests"
+    root = Path(__file__).resolve().parents[1] / ".tmp_tests"
     root.mkdir(parents=True, exist_ok=True)
     tmp = root / f"test_cfg_{uuid4().hex}"
     tmp.mkdir(parents=True, exist_ok=False)

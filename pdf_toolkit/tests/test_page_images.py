@@ -1,4 +1,4 @@
-﻿"""
+"""
 Unit tests for spread split and crop helpers.
 
 These tests build synthetic images in memory, so they are fast and do not
@@ -7,8 +7,6 @@ require filesystem fixtures.
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 import unittest
 
 try:
@@ -17,12 +15,8 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency for local 
     Image = None  # type: ignore[assignment]
     ImageDraw = None  # type: ignore[assignment]
 
-# Add the repository src/ directory so tests run from a fresh checkout.
-SRC_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(SRC_DIR))
-
 try:
-    from pdf_toolkit.page_images import detect_gutter_x, find_crop_bbox, split_spread_image
+    from src.pdf_toolkit.page_images import detect_gutter_x, find_crop_bbox, split_spread_image
 except ModuleNotFoundError:  # pragma: no cover - optional dependency for local test runs
     detect_gutter_x = None  # type: ignore[assignment]
     find_crop_bbox = None  # type: ignore[assignment]

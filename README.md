@@ -200,5 +200,5 @@ By default the manifest is written to:
 Run the minimal unit tests:
 
 ```powershell
-python -m unittest discover -s src/pdf_toolkit -p "test_*.py"
+python -m unittest discover -s tests -p "test_*.py"
 ```
