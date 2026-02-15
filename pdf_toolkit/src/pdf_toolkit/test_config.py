@@ -1,4 +1,4 @@
-"""
+﻿"""
 Unit tests for page-images YAML config loading and precedence.
 """
 
@@ -17,8 +17,8 @@ sys.path.insert(0, str(SRC_DIR))
 
 from pdf_toolkit.cli import (
     _build_page_images_effective_config,
-    _extract_page_images_section,
     _build_parser,
+    _extract_page_images_section,
     main,
 )
 from pdf_toolkit.config import DEFAULT_PAGE_IMAGES, deep_merge
@@ -49,9 +49,7 @@ class PageImagesConfigTests(unittest.TestCase):
             path.write_text(
                 "page_images:\n"
                 "  mode: auto\n"
-                "  page_numbers:\n"
-                "    enabled: true\n"
-                "    bad_key: 1\n",
+                "  bad_key: 1\n",
                 encoding="utf-8",
             )
             args = _build_parser().parse_args(
@@ -67,10 +65,7 @@ class PageImagesConfigTests(unittest.TestCase):
                 "page_images:\n"
                 "  mode: split\n"
                 "  split_ratio: 2.5\n"
-                "  page_numbers:\n"
-                "    enabled: true\n"
-                "    positions: [left]\n"
-                "    max_page: 321\n",
+                "  glob: '*.jpg'\n",
                 encoding="utf-8",
             )
             args = _build_parser().parse_args(
@@ -84,16 +79,13 @@ class PageImagesConfigTests(unittest.TestCase):
                     str(path),
                     "--mode",
                     "crop",
-                    "--page_num_max",
-                    "999",
                 ]
             )
             effective, _ = _build_page_images_effective_config(args)
             self.assertEqual(effective["mode"], "crop")
             self.assertEqual(effective["split_ratio"], 2.5)
-            self.assertEqual(effective["page_numbers"]["max_page"], 999)
-            self.assertTrue(effective["page_numbers"]["enabled"])
-            self.assertEqual(effective["glob"], DEFAULT_PAGE_IMAGES["glob"])
+            self.assertEqual(effective["glob"], "*.jpg")
+            self.assertEqual(effective["pad_px"], DEFAULT_PAGE_IMAGES["pad_px"])
 
     def test_dump_default_config_without_paths(self) -> None:
         stream = io.StringIO()
@@ -102,7 +94,7 @@ class PageImagesConfigTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         dumped = stream.getvalue()
         self.assertIn("page_images:", dumped)
-        self.assertIn("page_numbers:", dumped)
+        self.assertNotIn("page_numbers:", dumped)
 
 
 if __name__ == "__main__":

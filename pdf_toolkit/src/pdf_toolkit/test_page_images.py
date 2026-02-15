@@ -1,4 +1,4 @@
-"""
+﻿"""
 Unit tests for spread split and crop helpers.
 
 These tests build synthetic images in memory, so they are fast and do not
@@ -7,28 +7,17 @@ require filesystem fixtures.
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 import unittest
-from unittest.mock import patch
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 # Add the repository src/ directory so tests run from a fresh checkout.
 SRC_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SRC_DIR))
 
-from pdf_toolkit.page_images import (
-    _compute_text_bbox_for_page,
-    build_page_num_regions,
-    detect_gutter_x,
-    extract_printed_page_number,
-    find_crop_bbox,
-    parse_roman_numeral,
-    split_spread_image,
-    which_tesseract,
-)
+from pdf_toolkit.page_images import detect_gutter_x, find_crop_bbox, split_spread_image
 
 
 def _make_synthetic_spread() -> Image.Image:
@@ -86,193 +75,6 @@ class PageImageHeuristicsTests(unittest.TestCase):
         self.assertEqual(bbox, (0, 0, 200, 100))
         self.assertTrue(used_fallback)
         self.assertIsNotNone(note)
-
-    def test_extract_printed_page_number_no_tesseract(self) -> None:
-        page = Image.new("RGB", (1200, 1800), color="white")
-        with patch("pdf_toolkit.page_images.which_tesseract", return_value=None):
-            extracted = extract_printed_page_number(
-                page,
-                {
-                    "anchors": ["top"],
-                    "positions": ["right", "left"],
-                    "strip_frac": 0.12,
-                    "corner_w_frac": 0.28,
-                    "corner_h_frac": 0.45,
-                    "center_w_frac": 0.2,
-                    "psm_candidates": [7],
-                    "max_page": 5000,
-                    "prep_scale": 2,
-                    "bin_threshold": 160,
-                    "invert": False,
-                    "debug_crops": False,
-                },
-            )
-        self.assertIsNone(extracted["printed_page"])
-        self.assertEqual(extracted["reason"], "no_tesseract")
-
-    def test_page_number_corner_region_bounds(self) -> None:
-        regions = build_page_num_regions(
-            1000,
-            1500,
-            {
-                "anchors": ["top", "bottom"],
-                "positions": ["left", "center", "right"],
-                "strip_frac": 0.12,
-                "corner_w_frac": 0.28,
-                "corner_h_frac": 0.45,
-                "center_w_frac": 0.20,
-            },
-        )
-        names = [name for name, _ in regions]
-        self.assertEqual(
-            names,
-            [
-                "top_left",
-                "top_center",
-                "top_right",
-                "bottom_left",
-                "bottom_center",
-                "bottom_right",
-            ],
-        )
-        expected = {
-            "top_left": (0, 0, 280, 81),
-            "top_center": (400, 0, 600, 81),
-            "top_right": (720, 0, 1000, 81),
-            "bottom_left": (0, 1320, 280, 1401),
-            "bottom_center": (400, 1320, 600, 1401),
-            "bottom_right": (720, 1320, 1000, 1401),
-        }
-        for name, bbox in regions:
-            self.assertEqual(bbox, expected[name])
-            self.assertLess(bbox[0], bbox[2])
-            self.assertLess(bbox[1], bbox[3])
-
-    def test_page_number_region_y_offset_clamped(self) -> None:
-        regions = build_page_num_regions(
-            1000,
-            1500,
-            {
-                "anchors": ["top"],
-                "allow_positions": ["left", "right"],
-                "positions": ["left", "right"],
-                "strip_frac": 0.12,
-                "strip_y_offset_px": 2000,
-                "corner_w_frac": 0.28,
-                "corner_h_frac": 0.45,
-                "center_w_frac": 0.20,
-            },
-        )
-        for _, bbox in regions:
-            self.assertGreaterEqual(bbox[1], 0)
-            self.assertLessEqual(bbox[1], 1499)
-            self.assertGreater(bbox[3], bbox[1])
-            self.assertLessEqual(bbox[3], 1500)
-
-    def test_page_number_regions_relative_to_text_bbox_move_inward(self) -> None:
-        page = Image.new("L", (200, 120), color=255)
-        draw = ImageDraw.Draw(page)
-        draw.rectangle((40, 20, 159, 99), fill=0)
-        page_rgb = page.convert("RGB")
-
-        cfg = {
-            "anchors": ["top"],
-            "positions": ["left", "right"],
-            "strip_frac": 0.20,
-            "corner_w_frac": 0.25,
-            "corner_h_frac": 0.50,
-            "center_w_frac": 0.20,
-            "strip_y_offset_px": 0,
-        }
-        by_image = dict(build_page_num_regions(page_rgb.width, page_rgb.height, cfg))
-
-        text_bbox = _compute_text_bbox_for_page(
-            page_rgb,
-            {"threshold": 170, "min_area_frac": 0.001},
-        )
-        self.assertIsNotNone(text_bbox)
-
-        by_text_bbox = dict(
-            build_page_num_regions(
-                page_rgb.width,
-                page_rgb.height,
-                cfg,
-                frame_bbox=text_bbox,
-            )
-        )
-
-        self.assertGreater(by_text_bbox["top_left"][0], by_image["top_left"][0])
-        self.assertGreater(by_text_bbox["top_left"][1], by_image["top_left"][1])
-        self.assertLess(by_text_bbox["top_right"][2], by_image["top_right"][2])
-
-    def test_parse_roman_numeral_valid(self) -> None:
-        self.assertEqual(parse_roman_numeral("x"), 10)
-        self.assertEqual(parse_roman_numeral("xi"), 11)
-        self.assertEqual(parse_roman_numeral("xii"), 12)
-        self.assertEqual(parse_roman_numeral("iv"), 4)
-        self.assertEqual(parse_roman_numeral("ix"), 9)
-        self.assertEqual(parse_roman_numeral("xl"), 40)
-        self.assertEqual(parse_roman_numeral("MCMXCIV"), 1994)
-
-    def test_parse_roman_numeral_rejects_invalid(self) -> None:
-        self.assertIsNone(parse_roman_numeral(""))
-        self.assertIsNone(parse_roman_numeral("IIII"))
-        self.assertIsNone(parse_roman_numeral("IC"))
-        self.assertIsNone(parse_roman_numeral("VX"))
-        self.assertIsNone(parse_roman_numeral("abc"))
-        self.assertIsNone(parse_roman_numeral("iix"))
-
-    @unittest.skipUnless(
-        os.environ.get("PDFTK_RUN_TESSERACT_TESTS") == "1",
-        "Set PDFTK_RUN_TESSERACT_TESTS=1 to run OCR integration checks.",
-    )
-    def test_extract_printed_page_number_with_tesseract(self) -> None:
-        tesseract_exe = which_tesseract()
-        if tesseract_exe is None:
-            self.skipTest("tesseract executable not found in PATH")
-
-        page_num_max = 5000
-        page = Image.new("RGB", (1600, 2200), color="white")
-        draw = ImageDraw.Draw(page)
-        try:
-            font = ImageFont.truetype("DejaVuSans.ttf", 140)
-        except OSError:
-            font = ImageFont.load_default()
-        draw.text((1240, 20), "123", fill="black", font=font)
-
-        extracted = extract_printed_page_number(
-            page,
-            {
-                "anchors": ["top"],
-                "positions": ["right", "left"],
-                "strip_frac": 0.12,
-                "corner_w_frac": 0.28,
-                "corner_h_frac": 0.45,
-                "center_w_frac": 0.2,
-                "psm_candidates": [7],
-                "max_page": page_num_max,
-                "prep_scale": 2,
-                "bin_threshold": 160,
-                "invert": False,
-                "debug_crops": False,
-            },
-            tesseract_exe=tesseract_exe,
-        )
-        print(
-            f"OCR integration raw_left={extracted['raw_left']!r} "
-            f"raw_right={extracted['raw_right']!r}"
-        )
-
-        printed_page = extracted["printed_page"]
-        if printed_page is not None:
-            self.assertIsInstance(printed_page, int)
-            self.assertGreaterEqual(printed_page, 1)
-            self.assertLessEqual(printed_page, page_num_max)
-        else:
-            self.assertIn(
-                extracted["reason"],
-                {"no_digits", "out_of_range", "tesseract_failed"},
-            )
 
 
 if __name__ == "__main__":

@@ -122,17 +122,6 @@ Never split (crop-only):
 python -m pdf_toolkit page-images --in_dir "out\pages" --out_dir "out\pages_single" --mode crop
 ```
 
-Optional printed-page number extraction (tesseract CLI in `PATH`):
-
-```powershell
-python -m pdf_toolkit page-images --in_dir "out\pages" --out_dir "out\pages_single" --mode auto --extract_page_numbers --page_num_debug
-```
-
-Notes:
-- `--extract_page_numbers` is optional. This project does not require `pytesseract`.
-- The feature uses the `tesseract` executable via subprocess.
-- If `tesseract` is unavailable, processing still succeeds and manifest outputs include `printed_page: null` with `reason: "no_tesseract"`.
-
 ### Page-images YAML config
 
 Dump the default YAML config:
@@ -159,10 +148,8 @@ Root form:
 ```yaml
 mode: auto
 split_ratio: 1.25
-page_numbers:
-  enabled: true
-  anchors: [top]
-  positions: [right, left, center]
+crop_threshold: 180
+pad_px: 20
 ```
 
 Wrapped form:
@@ -171,29 +158,13 @@ Wrapped form:
 page_images:
   mode: auto
   split_ratio: 1.25
-  page_numbers:
-    enabled: true
-    anchors: [top, bottom]
-    positions: [right, left, center]
-    psm_candidates: [7, 6, 8]
-    prep_scale: 3
+  gutter_search_frac: 0.35
+  crop_threshold: 180
+  min_area_frac: 0.25
 ```
 
-Page number tuning keys (`page_numbers`):
-- `enabled`
-- `anchors` (`top`, `bottom`)
-- `positions` / `allow_positions` (`left`, `right`, `center`) and order controls search priority
-- `parser` (`auto`, `arabic`, `roman`)
-- `roman_whitelist`
-- `strip_frac`, `strip_y_offset_px`, `corner_w_frac`, `corner_h_frac`, `center_w_frac`
-- `psm_candidates` (tried in order)
-- `max_page`
-- `prep_scale`, `bin_threshold`, `invert`
-- `dark_bbox` (`enabled`, `threshold`, `pad_px`, `min_area_frac`)
-- `debug_crops` (writes `_debug/<out_stem>__<region>.png`)
-
 Recommended pipeline:
-`render -> page-images -> ocr-obsidian`
+`render -> page-images`
 
 ## Page selection format
 
@@ -209,25 +180,10 @@ Each command writes a JSON manifest describing:
 - Actions taken (written, skipped, dry-run)
 - Timestamps
 
-When `page-images` runs with `--extract_page_numbers`, each action output includes OCR metadata:
+`page-images` action outputs list the written files, plus split/crop metadata (`gutter_x`, bboxes, spread detection notes).
 
 ```json
-{
-  "path": "out/pages_single/book_p0001_R.png",
-  "printed_page": 123,
-  "printed_page_text": "xii",
-  "printed_page_kind": "roman",
-  "region_used": "top_right",
-  "psm_used": 7,
-  "corner": "right",
-  "raw_left": "",
-  "raw_right": "123",
-  "raw_by_region": {
-    "top_right": "123",
-    "top_left": ""
-  },
-  "reason": null
-}
+["out/pages_single/book_p0001_L.png", "out/pages_single/book_p0001_R.png"]
 ```
 
 By default the manifest is written to:
