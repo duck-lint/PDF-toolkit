@@ -139,10 +139,9 @@ def split_pdf(
                     )
                     continue
 
-                out_doc = fitz.open()
-                out_doc.insert_pdf(doc, from_page=start, to_page=end)
-                out_doc.save(output_path)
-                out_doc.close()
+                with fitz.open() as out_doc:
+                    out_doc.insert_pdf(doc, from_page=start, to_page=end)
+                    out_doc.save(output_path)
 
                 recorder.log(f"Wrote part {index} ({human_range}) -> {output_path}")
                 recorder.add_action(

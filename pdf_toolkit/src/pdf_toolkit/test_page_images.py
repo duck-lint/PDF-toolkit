@@ -11,13 +11,22 @@ import sys
 from pathlib import Path
 import unittest
 
-from PIL import Image, ImageDraw
+try:
+    from PIL import Image, ImageDraw
+except ModuleNotFoundError:  # pragma: no cover - optional dependency for local test runs
+    Image = None  # type: ignore[assignment]
+    ImageDraw = None  # type: ignore[assignment]
 
 # Add the repository src/ directory so tests run from a fresh checkout.
 SRC_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SRC_DIR))
 
-from pdf_toolkit.page_images import detect_gutter_x, find_crop_bbox, split_spread_image
+try:
+    from pdf_toolkit.page_images import detect_gutter_x, find_crop_bbox, split_spread_image
+except ModuleNotFoundError:  # pragma: no cover - optional dependency for local test runs
+    detect_gutter_x = None  # type: ignore[assignment]
+    find_crop_bbox = None  # type: ignore[assignment]
+    split_spread_image = None  # type: ignore[assignment]
 
 
 def _make_synthetic_spread() -> Image.Image:
@@ -31,6 +40,10 @@ def _make_synthetic_spread() -> Image.Image:
     return image.convert("RGB")
 
 
+@unittest.skipIf(
+    Image is None or detect_gutter_x is None,
+    "Pillow is required for page-images tests.",
+)
 class PageImageHeuristicsTests(unittest.TestCase):
     def test_detect_gutter_near_expected_center(self) -> None:
         spread = _make_synthetic_spread()

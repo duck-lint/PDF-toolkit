@@ -5,24 +5,41 @@ Unit tests for page-images YAML config loading and precedence.
 from __future__ import annotations
 
 import io
+import shutil
 import sys
-import tempfile
 from pathlib import Path
 import unittest
-from contextlib import redirect_stdout
+from contextlib import contextmanager
+from contextlib import redirect_stderr, redirect_stdout
+from uuid import uuid4
 
 # Add the repository src/ directory so tests run from a fresh checkout.
 SRC_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SRC_DIR))
 
 from pdf_toolkit.cli import (
+    _command_argv_for_manifest,
     _build_page_images_effective_config,
     _build_parser,
     _extract_page_images_section,
+    _require_bool,
     main,
 )
 from pdf_toolkit.config import DEFAULT_PAGE_IMAGES, deep_merge
+from pdf_toolkit.config import yaml as yaml_module
 from pdf_toolkit.utils import UserError
+
+
+@contextmanager
+def _workspace_temp_dir():
+    root = Path(__file__).resolve().parents[2] / ".tmp_tests"
+    root.mkdir(parents=True, exist_ok=True)
+    tmp = root / f"test_cfg_{uuid4().hex}"
+    tmp.mkdir(parents=True, exist_ok=False)
+    try:
+        yield tmp
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 class PageImagesConfigTests(unittest.TestCase):
@@ -44,8 +61,10 @@ class PageImagesConfigTests(unittest.TestCase):
         self.assertEqual(section["split_ratio"], 2.0)
 
     def test_unknown_nested_key_fails(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "bad.yaml"
+        if yaml_module is None:
+            self.skipTest("PyYAML is required for YAML config tests.")
+        with _workspace_temp_dir() as tmpdir:
+            path = tmpdir / "bad.yaml"
             path.write_text(
                 "page_images:\n"
                 "  mode: auto\n"
@@ -59,8 +78,10 @@ class PageImagesConfigTests(unittest.TestCase):
                 _build_page_images_effective_config(args)
 
     def test_precedence_defaults_then_yaml_then_explicit_cli(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "cfg.yaml"
+        if yaml_module is None:
+            self.skipTest("PyYAML is required for YAML config tests.")
+        with _workspace_temp_dir() as tmpdir:
+            path = tmpdir / "cfg.yaml"
             path.write_text(
                 "page_images:\n"
                 "  mode: split\n"
@@ -88,6 +109,8 @@ class PageImagesConfigTests(unittest.TestCase):
             self.assertEqual(effective["pad_px"], DEFAULT_PAGE_IMAGES["pad_px"])
 
     def test_dump_default_config_without_paths(self) -> None:
+        if yaml_module is None:
+            self.skipTest("PyYAML is required for YAML config tests.")
         stream = io.StringIO()
         with redirect_stdout(stream):
             rc = main(["page-images", "--dump-default-config"])
@@ -95,6 +118,53 @@ class PageImagesConfigTests(unittest.TestCase):
         dumped = stream.getvalue()
         self.assertIn("page_images:", dumped)
         self.assertNotIn("page_numbers:", dumped)
+
+    def test_require_bool_accepts_true_false_only(self) -> None:
+        self.assertTrue(_require_bool(True, "config.debug"))
+        self.assertFalse(_require_bool(False, "config.debug"))
+        with self.assertRaises(UserError):
+            _require_bool("false", "config.debug")
+
+    def test_command_argv_for_manifest_uses_passed_argv(self) -> None:
+        original = sys.argv
+        try:
+            sys.argv = ["pdf_toolkit_entry"]
+            self.assertEqual(
+                _command_argv_for_manifest(["page-images", "--dry-run"]),
+                ["pdf_toolkit_entry", "page-images", "--dry-run"],
+            )
+            self.assertEqual(
+                _command_argv_for_manifest(None),
+                ["pdf_toolkit_entry"],
+            )
+        finally:
+            sys.argv = original
+
+    def test_page_images_invalid_bool_in_config_fails_cleanly(self) -> None:
+        if yaml_module is None:
+            self.skipTest("PyYAML is required for YAML config tests.")
+        with _workspace_temp_dir() as tmpdir:
+            path = tmpdir / "cfg.yaml"
+            path.write_text(
+                "page_images:\n"
+                "  overwrite: 'false'\n",
+                encoding="utf-8",
+            )
+            err = io.StringIO()
+            with redirect_stderr(err):
+                rc = main(
+                    [
+                        "page-images",
+                        "--in_dir",
+                        "in",
+                        "--out_dir",
+                        "out",
+                        "--config",
+                        str(path),
+                    ]
+                )
+            self.assertEqual(rc, 2)
+            self.assertIn("config.overwrite must be true or false.", err.getvalue())
 
 
 if __name__ == "__main__":

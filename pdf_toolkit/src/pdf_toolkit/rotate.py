@@ -166,7 +166,7 @@ def rotate_pdf_pages(
 def _collect_image_files(in_dir: Path, pattern: str) -> List[Path]:
     """Return a sorted list of matching files for stable processing order."""
 
-    return sorted(in_dir.glob(pattern))
+    return sorted(path for path in in_dir.glob(pattern) if path.is_file())
 
 
 def rotate_images_in_folder(

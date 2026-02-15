@@ -21,10 +21,6 @@ from .config import (
     load_yaml,
     validate_keys,
 )
-from .page_images import page_images_in_folder
-from .render import render_pdf_to_pngs
-from .rotate import rotate_images_in_folder, rotate_pdf_pages
-from .split import split_pdf
 from .utils import UserError, normalize_path
 
 
@@ -65,6 +61,14 @@ PAGE_IMAGES_EXAMPLES = """Examples:
 """
 
 PAGE_IMAGES_TOP_LEVEL_KEYS = set(DEFAULT_PAGE_IMAGES.keys())
+
+
+def _require_bool(value: Any, key: str) -> bool:
+    """Require a strict boolean value from config/CLI merge output."""
+
+    if isinstance(value, bool):
+        return value
+    raise UserError(f"{key} must be true or false.")
 
 
 def _extract_page_images_section(loaded: Dict[str, Any]) -> Dict[str, Any]:
@@ -365,6 +369,14 @@ def _command_string(argv: list[str]) -> str:
     return subprocess.list2cmdline(argv)
 
 
+def _command_argv_for_manifest(argv: list[str] | None) -> list[str]:
+    """Choose argv used to record manifest command faithfully."""
+
+    if argv is None:
+        return list(sys.argv)
+    return [sys.argv[0], *argv]
+
+
 def _options_for_manifest(args: argparse.Namespace) -> Dict[str, Any]:
     """
     Build a JSON-friendly options dict.
@@ -388,10 +400,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        command_string = _command_string(sys.argv)
+        command_string = _command_string(_command_argv_for_manifest(argv))
         options = _options_for_manifest(args)
 
         if args.command == "render":
+            from .render import render_pdf_to_pngs
+
             pdf_path = normalize_path(args.pdf)
             out_dir = normalize_path(args.out_dir)
             manifest_path = (
@@ -414,6 +428,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "split":
+            from .split import split_pdf
+
             pdf_path = normalize_path(args.pdf)
             out_dir = normalize_path(args.out_dir)
             manifest_path = (
@@ -435,6 +451,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "rotate" and args.rotate_target == "pdf":
+            from .rotate import rotate_pdf_pages
+
             pdf_path = normalize_path(args.pdf)
             out_pdf = normalize_path(args.out_pdf)
             manifest_path = (
@@ -457,6 +475,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "rotate" and args.rotate_target == "images":
+            from .rotate import rotate_images_in_folder
+
             in_dir = normalize_path(args.in_dir)
             out_dir = normalize_path(args.out_dir)
             manifest_path = (
@@ -502,6 +522,13 @@ def main(argv: list[str] | None = None) -> int:
             if config_path is not None:
                 page_options["config_path"] = str(config_path)
 
+            overwrite = _require_bool(effective_cfg["overwrite"], "config.overwrite")
+            inplace = _require_bool(effective_cfg["inplace"], "config.inplace")
+            dry_run = _require_bool(effective_cfg["dry_run"], "config.dry_run")
+            debug = _require_bool(effective_cfg["debug"], "config.debug")
+
+            from .page_images import page_images_in_folder
+
             page_images_in_folder(
                 in_dir=in_dir,
                 out_dir=out_dir,
@@ -514,13 +541,13 @@ def main(argv: list[str] | None = None) -> int:
                 crop_threshold=int(effective_cfg["crop_threshold"]),
                 pad_px=int(effective_cfg["pad_px"]),
                 min_area_frac=float(effective_cfg["min_area_frac"]),
-                overwrite=bool(effective_cfg["overwrite"]),
-                inplace=bool(effective_cfg["inplace"]),
-                dry_run=bool(effective_cfg["dry_run"]),
+                overwrite=overwrite,
+                inplace=inplace,
+                dry_run=dry_run,
                 manifest_path=manifest_path,
                 command_string=command_string,
                 options=page_options,
-                debug=bool(effective_cfg["debug"]),
+                debug=debug,
             )
             return 0
 
