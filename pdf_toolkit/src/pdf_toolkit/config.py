@@ -8,7 +8,10 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-import yaml
+try:
+    import yaml
+except ModuleNotFoundError:  # pragma: no cover - dependency availability
+    yaml = None  # type: ignore[assignment]
 
 from .utils import UserError, ensure_file_exists
 
@@ -56,14 +59,26 @@ DEFAULT_PAGE_IMAGES: dict[str, Any] = {
 }
 
 
+def _require_yaml() -> Any:
+    """Return yaml module or raise a user-facing install hint."""
+
+    if yaml is None:
+        raise UserError(
+            "YAML support requires PyYAML. Install dependencies with "
+            "'pip install -r requirements.txt' or install 'PyYAML'."
+        )
+    return yaml
+
+
 def load_yaml(path: Path) -> dict[str, Any]:
     """Load a YAML file into a dictionary."""
 
     ensure_file_exists(path, "Config file")
+    yaml_mod = _require_yaml()
     try:
         with path.open("r", encoding="utf-8") as handle:
-            loaded = yaml.safe_load(handle)
-    except yaml.YAMLError as exc:
+            loaded = yaml_mod.safe_load(handle)
+    except yaml_mod.YAMLError as exc:
         raise UserError(f"Failed to parse YAML config {path}: {exc}") from exc
     except OSError as exc:
         raise UserError(f"Failed to read config {path}: {exc}") from exc
@@ -105,3 +120,10 @@ def validate_keys(cfg: dict[str, Any], allowed: set[str], ctx: str) -> None:
         raise UserError(
             f"Unknown keys in {ctx}: {unknown_list}. Allowed keys: {allowed_list}."
         )
+
+
+def dump_default_page_images_yaml() -> str:
+    """Serialize wrapped page-images defaults as YAML."""
+
+    yaml_mod = _require_yaml()
+    return yaml_mod.safe_dump({"page_images": DEFAULT_PAGE_IMAGES}, sort_keys=False).rstrip()

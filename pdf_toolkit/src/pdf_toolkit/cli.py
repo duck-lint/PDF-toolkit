@@ -13,10 +13,14 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
-import yaml
-
 from . import __version__
-from .config import DEFAULT_PAGE_IMAGES, deep_merge, load_yaml, validate_keys
+from .config import (
+    DEFAULT_PAGE_IMAGES,
+    deep_merge,
+    dump_default_page_images_yaml,
+    load_yaml,
+    validate_keys,
+)
 from .page_images import page_images_in_folder
 from .render import render_pdf_to_pngs
 from .rotate import rotate_images_in_folder, rotate_pdf_pages
@@ -144,7 +148,7 @@ def _build_page_images_effective_config(
 def _dump_default_page_images_config() -> None:
     """Print the wrapped default page-images config as YAML."""
 
-    print(yaml.safe_dump({"page_images": DEFAULT_PAGE_IMAGES}, sort_keys=False).rstrip())
+    print(dump_default_page_images_yaml())
 
 
 def _build_parser() -> argparse.ArgumentParser:
