@@ -16,7 +16,7 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency for local 
     ImageDraw = None  # type: ignore[assignment]
 
 try:
-    from src.pdf_toolkit.page_images import detect_gutter_x, find_crop_bbox, split_spread_image
+    from src.pdf-toolkit.page_images import detect_gutter_x, find_crop_bbox, split_spread_image
 except ModuleNotFoundError:  # pragma: no cover - optional dependency for local test runs
     detect_gutter_x = None  # type: ignore[assignment]
     find_crop_bbox = None  # type: ignore[assignment]

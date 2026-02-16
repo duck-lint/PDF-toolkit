@@ -1,5 +1,5 @@
 """
-Command-line interface for pdf_toolkit.
+Command-line interface for pdf-toolkit.
 
 This file focuses on parsing arguments and dispatching to the real work.
 Keeping this separate makes the code easier to read and test.
@@ -25,39 +25,39 @@ from .utils import UserError, normalize_path
 
 
 TOP_LEVEL_EXAMPLES = """Examples:
-  python -m pdf_toolkit render --pdf "in.pdf" --out_dir "out\\pages" --dpi 300 --format png --prefix "book1"
-  python -m pdf_toolkit split --pdf "in.pdf" --out_dir "out\\splits" --ranges "1-120,121-240" --prefix "book"
-  python -m pdf_toolkit rotate pdf --pdf "in.pdf" --out_pdf "in_rotated.pdf" --degrees 90 --pages "all"
-  python -m pdf_toolkit rotate images --in_dir "out\\pages" --glob "*.png" --degrees 90 --out_dir "out\\pages_rot"
-  python -m pdf_toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages_single" --glob "*.png" --mode auto --debug
+  python -m pdf-toolkit render --pdf "in.pdf" --out_dir "out\\pages" --dpi 300 --format png --prefix "book1"
+  python -m pdf-toolkit split --pdf "in.pdf" --out_dir "out\\splits" --ranges "1-120,121-240" --prefix "book"
+  python -m pdf-toolkit rotate pdf --pdf "in.pdf" --out_pdf "in_rotated.pdf" --degrees 90 --pages "all"
+  python -m pdf-toolkit rotate images --in_dir "out\\pages" --glob "*.png" --degrees 90 --out_dir "out\\pages_rot"
+  python -m pdf-toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages_single" --glob "*.png" --mode auto --debug
 """
 
 RENDER_EXAMPLES = """Examples:
-  python -m pdf_toolkit render --pdf "in.pdf" --out_dir "out\\pages" --dpi 300 --format png --prefix "book1"
-  python -m pdf_toolkit render --pdf "in.pdf" --out_dir "out\\pages" --pages "1-10,15" --dry-run
+  python -m pdf-toolkit render --pdf "in.pdf" --out_dir "out\\pages" --dpi 300 --format png --prefix "book1"
+  python -m pdf-toolkit render --pdf "in.pdf" --out_dir "out\\pages" --pages "1-10,15" --dry-run
 """
 
 SPLIT_EXAMPLES = """Examples:
-  python -m pdf_toolkit split --pdf "in.pdf" --out_dir "out\\splits" --ranges "1-120,121-240" --prefix "book"
-  python -m pdf_toolkit split --pdf "in.pdf" --out_dir "out\\splits" --pages_per_file 120 --prefix "book"
+  python -m pdf-toolkit split --pdf "in.pdf" --out_dir "out\\splits" --ranges "1-120,121-240" --prefix "book"
+  python -m pdf-toolkit split --pdf "in.pdf" --out_dir "out\\splits" --pages_per_file 120 --prefix "book"
 """
 
 ROTATE_PDF_EXAMPLES = """Examples:
-  python -m pdf_toolkit rotate pdf --pdf "in.pdf" --out_pdf "in_rotated.pdf" --degrees 90 --pages "all"
-  python -m pdf_toolkit rotate pdf --pdf "in.pdf" --out_pdf "in.pdf" --degrees 180 --pages "1-5" --inplace --overwrite
+  python -m pdf-toolkit rotate pdf --pdf "in.pdf" --out_pdf "in_rotated.pdf" --degrees 90 --pages "all"
+  python -m pdf-toolkit rotate pdf --pdf "in.pdf" --out_pdf "in.pdf" --degrees 180 --pages "1-5" --inplace --overwrite
 """
 
 ROTATE_IMAGES_EXAMPLES = """Examples:
-  python -m pdf_toolkit rotate images --in_dir "out\\pages" --glob "*.png" --degrees 90 --out_dir "out\\pages_rot"
-  python -m pdf_toolkit rotate images --in_dir "out\\pages" --glob "*.png" --degrees 90 --out_dir "out\\pages" --inplace --overwrite
+  python -m pdf-toolkit rotate images --in_dir "out\\pages" --glob "*.png" --degrees 90 --out_dir "out\\pages_rot"
+  python -m pdf-toolkit rotate images --in_dir "out\\pages" --glob "*.png" --degrees 90 --out_dir "out\\pages" --inplace --overwrite
 """
 
 PAGE_IMAGES_EXAMPLES = """Examples:
-  python -m pdf_toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages_single" --glob "*.png" --mode auto --debug
-  python -m pdf_toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages_single" --mode split --overwrite
-  python -m pdf_toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages" --mode crop --inplace --overwrite
-  python -m pdf_toolkit page-images --dump-default-config
-  python -m pdf_toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages_single" --config "configs\\page_images.default.yaml"
+  python -m pdf-toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages_single" --glob "*.png" --mode auto --debug
+  python -m pdf-toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages_single" --mode split --overwrite
+  python -m pdf-toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages" --mode crop --inplace --overwrite
+  python -m pdf-toolkit page-images --dump-default-config
+  python -m pdf-toolkit page-images --in_dir "out\\pages" --out_dir "out\\pages_single" --config "configs\\page_images.default.yaml"
 """
 
 PAGE_IMAGES_TOP_LEVEL_KEYS = set(DEFAULT_PAGE_IMAGES.keys())
@@ -128,7 +128,7 @@ def _verbosity_from_args(args: argparse.Namespace) -> str:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="pdf_toolkit",
+        prog="pdf-toolkit",
         description="Local, lightweight PDF tools (render, split, rotate, page-images).",
         epilog=TOP_LEVEL_EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,

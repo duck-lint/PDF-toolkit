@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from contextlib import redirect_stderr, redirect_stdout
 from uuid import uuid4
 
-from src.pdf_toolkit.cli import (
+from src.pdf-toolkit.cli import (
     _command_argv_for_manifest,
     _build_page_images_effective_config,
     _build_parser,
@@ -22,9 +22,9 @@ from src.pdf_toolkit.cli import (
     _verbosity_from_args,
     main,
 )
-from src.pdf_toolkit.config import DEFAULT_PAGE_IMAGES, deep_merge
-from src.pdf_toolkit.config import yaml as yaml_module
-from src.pdf_toolkit.utils import UserError
+from src.pdf-toolkit.config import DEFAULT_PAGE_IMAGES, deep_merge
+from src.pdf-toolkit.config import yaml as yaml_module
+from src.pdf-toolkit.utils import UserError
 
 
 @contextmanager
@@ -125,14 +125,14 @@ class PageImagesConfigTests(unittest.TestCase):
     def test_command_argv_for_manifest_uses_passed_argv(self) -> None:
         original = sys.argv
         try:
-            sys.argv = ["pdf_toolkit_entry"]
+            sys.argv = ["pdf-toolkit_entry"]
             self.assertEqual(
                 _command_argv_for_manifest(["page-images", "--dry-run"]),
-                ["pdf_toolkit_entry", "page-images", "--dry-run"],
+                ["pdf-toolkit_entry", "page-images", "--dry-run"],
             )
             self.assertEqual(
                 _command_argv_for_manifest(None),
-                ["pdf_toolkit_entry"],
+                ["pdf-toolkit_entry"],
             )
         finally:
             sys.argv = original

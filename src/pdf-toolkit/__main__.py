@@ -2,7 +2,7 @@
 Module entrypoint.
 
 Why this file exists:
-- Allows running the tool with `python -m pdf_toolkit`.
+- Allows running the tool with `python -m pdf-toolkit`.
 - Keeps the command-line interface in one place (cli.py).
 """
 

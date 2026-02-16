@@ -67,7 +67,7 @@ def split_pdf(
     """
 
     recorder = ManifestRecorder(
-        tool_name="pdf_toolkit",
+        tool_name="pdf-toolkit",
         tool_version=str(options.get("version", "0.0.0")),
         command=command_string,
         options=options,

@@ -26,7 +26,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-3) Install this package in editable mode so `python -m pdf_toolkit` works:
+3) Install this package in editable mode so `python -m pdf-toolkit` works:
 
 ```powershell
 pip install -e .
@@ -43,19 +43,19 @@ $env:PYTHONPATH = "src"
 See all commands:
 
 ```powershell
-python -m pdf_toolkit --help
+python -m pdf-toolkit --help
 ```
 
 ### Render PDF to PNG
 
 ```powershell
-python -m pdf_toolkit render --pdf "in.pdf" --out_dir "out\pages" --dpi 300 --format png --prefix "book1"
+python -m pdf-toolkit render --pdf "in.pdf" --out_dir "out\pages" --dpi 300 --format png --prefix "book1"
 ```
 
 Dry-run (no files written):
 
 ```powershell
-python -m pdf_toolkit render --pdf "in.pdf" --out_dir "out\pages" --pages "1-10,15" --dry-run
+python -m pdf-toolkit render --pdf "in.pdf" --out_dir "out\pages" --pages "1-10,15" --dry-run
 ```
 
 Output naming is predictable:
@@ -66,13 +66,13 @@ Output naming is predictable:
 Explicit ranges:
 
 ```powershell
-python -m pdf_toolkit split --pdf "in.pdf" --out_dir "out\splits" --ranges "1-120,121-240" --prefix "book"
+python -m pdf-toolkit split --pdf "in.pdf" --out_dir "out\splits" --ranges "1-120,121-240" --prefix "book"
 ```
 
 Automatic chunking:
 
 ```powershell
-python -m pdf_toolkit split --pdf "in.pdf" --out_dir "out\splits" --pages_per_file 120 --prefix "book"
+python -m pdf-toolkit split --pdf "in.pdf" --out_dir "out\splits" --pages_per_file 120 --prefix "book"
 ```
 
 Outputs:
@@ -81,25 +81,25 @@ Outputs:
 ### Rotate PDF pages
 
 ```powershell
-python -m pdf_toolkit rotate pdf --pdf "in.pdf" --out_pdf "in_rotated.pdf" --degrees 90 --pages "all"
+python -m pdf-toolkit rotate pdf --pdf "in.pdf" --out_pdf "in_rotated.pdf" --degrees 90 --pages "all"
 ```
 
 In-place (overwrites input):
 
 ```powershell
-python -m pdf_toolkit rotate pdf --pdf "in.pdf" --out_pdf "in.pdf" --degrees 180 --pages "1-5" --inplace --overwrite
+python -m pdf-toolkit rotate pdf --pdf "in.pdf" --out_pdf "in.pdf" --degrees 180 --pages "1-5" --inplace --overwrite
 ```
 
 ### Rotate PNGs in a folder
 
 ```powershell
-python -m pdf_toolkit rotate images --in_dir "out\pages" --glob "*.png" --degrees 90 --out_dir "out\pages_rot"
+python -m pdf-toolkit rotate images --in_dir "out\pages" --glob "*.png" --degrees 90 --out_dir "out\pages_rot"
 ```
 
 In-place (overwrites files):
 
 ```powershell
-python -m pdf_toolkit rotate images --in_dir "out\pages" --glob "*.png" --degrees 90 --out_dir "out\pages" --inplace --overwrite
+python -m pdf-toolkit rotate images --in_dir "out\pages" --glob "*.png" --degrees 90 --out_dir "out\pages" --inplace --overwrite
 ```
 
 ### Page-images (split spreads + crop)
@@ -107,19 +107,19 @@ python -m pdf_toolkit rotate images --in_dir "out\pages" --glob "*.png" --degree
 Auto mode (split if wide enough, otherwise crop-only):
 
 ```powershell
-python -m pdf_toolkit page-images --in_dir "out\pages" --out_dir "out\pages_single" --glob "*.png" --mode auto --debug
+python -m pdf-toolkit page-images --in_dir "out\pages" --out_dir "out\pages_single" --glob "*.png" --mode auto --debug
 ```
 
 Always split:
 
 ```powershell
-python -m pdf_toolkit page-images --in_dir "out\pages" --out_dir "out\pages_single" --mode split --overwrite
+python -m pdf-toolkit page-images --in_dir "out\pages" --out_dir "out\pages_single" --mode split --overwrite
 ```
 
 Never split (crop-only):
 
 ```powershell
-python -m pdf_toolkit page-images --in_dir "out\pages" --out_dir "out\pages_single" --mode crop
+python -m pdf-toolkit page-images --in_dir "out\pages" --out_dir "out\pages_single" --mode crop
 ```
 
 ### Page-images YAML config
@@ -127,13 +127,13 @@ python -m pdf_toolkit page-images --in_dir "out\pages" --out_dir "out\pages_sing
 Dump the default YAML config:
 
 ```powershell
-python -m pdf_toolkit page-images --dump-default-config
+python -m pdf-toolkit page-images --dump-default-config
 ```
 
 Use a config file:
 
 ```powershell
-python -m pdf_toolkit page-images --in_dir "out\pages" --out_dir "out\pages_single" --config "configs\page_images.default.yaml"
+python -m pdf-toolkit page-images --in_dir "out\pages" --out_dir "out\pages_single" --config "configs\page_images.default.yaml"
 ```
 
 Precedence is deterministic:
@@ -208,7 +208,7 @@ python -m unittest discover -s tests -p "test_*.py"
 Prefer creating release zips from git history:
 
 ```powershell
-git archive --format=zip --output pdf_toolkit.zip HEAD
+git archive --format=zip --output pdf-toolkit.zip HEAD
 ```
 
 If you zip manually, delete `__pycache__/` folders and `*.pyc` files first.

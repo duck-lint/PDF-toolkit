@@ -12,7 +12,7 @@ import unittest
 from contextlib import contextmanager
 from uuid import uuid4
 
-from src.pdf_toolkit.manifest import ManifestRecorder
+from src.pdf-toolkit.manifest import ManifestRecorder
 
 
 @contextmanager
@@ -30,7 +30,7 @@ def _workspace_temp_dir():
 class RenderHelperTests(unittest.TestCase):
     def test_compute_page_digits(self) -> None:
         try:
-            from src.pdf_toolkit.render import _compute_page_digits
+            from src.pdf-toolkit.render import _compute_page_digits
         except ModuleNotFoundError as exc:
             self.skipTest(f"Missing optional dependency: {exc}")
 
@@ -42,7 +42,7 @@ class RenderHelperTests(unittest.TestCase):
 class SplitHelperTests(unittest.TestCase):
     def test_chunk_ranges(self) -> None:
         try:
-            from src.pdf_toolkit.split import _chunk_ranges
+            from src.pdf-toolkit.split import _chunk_ranges
         except ModuleNotFoundError as exc:
             self.skipTest(f"Missing optional dependency: {exc}")
 
@@ -53,7 +53,7 @@ class SplitHelperTests(unittest.TestCase):
 
     def test_compute_part_digits(self) -> None:
         try:
-            from src.pdf_toolkit.split import _compute_part_digits
+            from src.pdf-toolkit.split import _compute_part_digits
         except ModuleNotFoundError as exc:
             self.skipTest(f"Missing optional dependency: {exc}")
 
@@ -65,7 +65,7 @@ class SplitHelperTests(unittest.TestCase):
 class RotateHelperTests(unittest.TestCase):
     def test_collect_image_files_returns_only_files_sorted(self) -> None:
         try:
-            from src.pdf_toolkit.rotate import _collect_image_files
+            from src.pdf-toolkit.rotate import _collect_image_files
         except ModuleNotFoundError as exc:
             self.skipTest(f"Missing optional dependency: {exc}")
 
@@ -81,9 +81,9 @@ class RotateHelperTests(unittest.TestCase):
 class ManifestStructureTests(unittest.TestCase):
     def test_build_manifest_has_expected_shape(self) -> None:
         recorder = ManifestRecorder(
-            tool_name="pdf_toolkit",
+            tool_name="pdf-toolkit",
             tool_version="0.0.0",
-            command="pdf_toolkit render --dry-run",
+            command="pdf-toolkit render --dry-run",
             options={"dry_run": True},
             inputs={"pdf": "in.pdf"},
             outputs={"out_dir": "out"},
@@ -93,7 +93,7 @@ class ManifestStructureTests(unittest.TestCase):
         recorder.add_action("render_page", "dry-run", page=1, output="out/p1.png")
 
         manifest = recorder.build_manifest({"pages_selected": 1})
-        self.assertEqual(manifest["tool"], "pdf_toolkit")
+        self.assertEqual(manifest["tool"], "pdf-toolkit")
         self.assertIn("started_at", manifest)
         self.assertIn("ended_at", manifest)
         self.assertIn("logs", manifest)
@@ -105,9 +105,9 @@ class ManifestStructureTests(unittest.TestCase):
         with _workspace_temp_dir() as tmpdir:
             out_path = tmpdir / "manifest.json"
             recorder = ManifestRecorder(
-                tool_name="pdf_toolkit",
+                tool_name="pdf-toolkit",
                 tool_version="0.0.0",
-                command="pdf_toolkit split --dry-run",
+                command="pdf-toolkit split --dry-run",
                 options={},
                 inputs={},
                 outputs={},
@@ -120,9 +120,9 @@ class ManifestStructureTests(unittest.TestCase):
         with _workspace_temp_dir() as tmpdir:
             out_path = tmpdir / "manifest.json"
             recorder = ManifestRecorder(
-                tool_name="pdf_toolkit",
+                tool_name="pdf-toolkit",
                 tool_version="0.0.0",
-                command="pdf_toolkit split",
+                command="pdf-toolkit split",
                 options={},
                 inputs={},
                 outputs={},
@@ -140,9 +140,9 @@ class ManifestStructureTests(unittest.TestCase):
 class ManifestVerbosityTests(unittest.TestCase):
     def _recorder(self, verbosity: str, stream: io.StringIO) -> ManifestRecorder:
         return ManifestRecorder(
-            tool_name="pdf_toolkit",
+            tool_name="pdf-toolkit",
             tool_version="0.0.0",
-            command="pdf_toolkit",
+            command="pdf-toolkit",
             options={},
             inputs={},
             outputs={},

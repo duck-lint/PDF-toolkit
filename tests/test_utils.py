@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import unittest
 
-from src.pdf_toolkit.utils import (
+from src.pdf-toolkit.utils import (
     UserError,
     parse_page_ranges,
     parse_page_spec,

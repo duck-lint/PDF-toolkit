@@ -1,7 +1,7 @@
 # Environment / local tooling
 .venv/
 _workroot_manifests/
-pdf_toolkit-workroot/
+pdf-toolkit-workroot/
 _workroot_transcripts/
 
 # Python build/runtime artifacts

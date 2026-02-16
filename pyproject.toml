@@ -3,7 +3,7 @@ requires = ["setuptools>=65"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pdf_toolkit"
+name = "pdf-toolkit"
 version = "0.1.2"
 description = "Local, lightweight PDF tools (render, split, rotate, page-images)."
 requires-python = ">=3.11"
