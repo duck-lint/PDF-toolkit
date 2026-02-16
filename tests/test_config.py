@@ -4,6 +4,7 @@ Unit tests for page-images YAML config loading and precedence.
 
 from __future__ import annotations
 
+import importlib
 import io
 import shutil
 import sys
@@ -13,18 +14,26 @@ from contextlib import contextmanager
 from contextlib import redirect_stderr, redirect_stdout
 from uuid import uuid4
 
-from src.pdf-toolkit.cli import (
-    _command_argv_for_manifest,
-    _build_page_images_effective_config,
-    _build_parser,
-    _extract_page_images_section,
-    _require_bool,
-    _verbosity_from_args,
-    main,
-)
-from src.pdf-toolkit.config import DEFAULT_PAGE_IMAGES, deep_merge
-from src.pdf-toolkit.config import yaml as yaml_module
-from src.pdf-toolkit.utils import UserError
+SRC_DIR = Path(__file__).resolve().parents[1] / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+cli_mod = importlib.import_module("pdf-toolkit.cli")
+_command_argv_for_manifest = cli_mod._command_argv_for_manifest
+_build_page_images_effective_config = cli_mod._build_page_images_effective_config
+_build_parser = cli_mod._build_parser
+_extract_page_images_section = cli_mod._extract_page_images_section
+_require_bool = cli_mod._require_bool
+_verbosity_from_args = cli_mod._verbosity_from_args
+main = cli_mod.main
+
+config_mod = importlib.import_module("pdf-toolkit.config")
+DEFAULT_PAGE_IMAGES = config_mod.DEFAULT_PAGE_IMAGES
+deep_merge = config_mod.deep_merge
+yaml_module = config_mod.yaml
+
+utils_mod = importlib.import_module("pdf-toolkit.utils")
+UserError = utils_mod.UserError
 
 
 @contextmanager

@@ -7,6 +7,9 @@ require filesystem fixtures.
 
 from __future__ import annotations
 
+import importlib
+from pathlib import Path
+import sys
 import unittest
 
 try:
@@ -15,8 +18,15 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency for local 
     Image = None  # type: ignore[assignment]
     ImageDraw = None  # type: ignore[assignment]
 
+SRC_DIR = Path(__file__).resolve().parents[1] / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
 try:
-    from src.pdf-toolkit.page_images import detect_gutter_x, find_crop_bbox, split_spread_image
+    page_images_mod = importlib.import_module("pdf-toolkit.page_images")
+    detect_gutter_x = page_images_mod.detect_gutter_x
+    find_crop_bbox = page_images_mod.find_crop_bbox
+    split_spread_image = page_images_mod.split_spread_image
 except ModuleNotFoundError:  # pragma: no cover - optional dependency for local test runs
     detect_gutter_x = None  # type: ignore[assignment]
     find_crop_bbox = None  # type: ignore[assignment]

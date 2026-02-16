@@ -6,14 +6,21 @@ These are intentionally small, but they cover the most error-prone bits.
 
 from __future__ import annotations
 
+import importlib
+import sys
+from pathlib import Path
 import unittest
 
-from src.pdf-toolkit.utils import (
-    UserError,
-    parse_page_ranges,
-    parse_page_spec,
-    validate_degrees,
-)
+
+SRC_DIR = Path(__file__).resolve().parents[1] / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+utils_mod = importlib.import_module("pdf-toolkit.utils")
+UserError = utils_mod.UserError
+parse_page_ranges = utils_mod.parse_page_ranges
+parse_page_spec = utils_mod.parse_page_spec
+validate_degrees = utils_mod.validate_degrees
 
 
 class ParsePageSpecTests(unittest.TestCase):

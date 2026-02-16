@@ -4,15 +4,22 @@ Extra robustness tests for core helper behavior and manifest structure.
 
 from __future__ import annotations
 
+import importlib
 import io
 import json
 import shutil
+import sys
 from pathlib import Path
 import unittest
 from contextlib import contextmanager
 from uuid import uuid4
 
-from src.pdf-toolkit.manifest import ManifestRecorder
+SRC_DIR = Path(__file__).resolve().parents[1] / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+manifest_mod = importlib.import_module("pdf-toolkit.manifest")
+ManifestRecorder = manifest_mod.ManifestRecorder
 
 
 @contextmanager
@@ -30,7 +37,8 @@ def _workspace_temp_dir():
 class RenderHelperTests(unittest.TestCase):
     def test_compute_page_digits(self) -> None:
         try:
-            from src.pdf-toolkit.render import _compute_page_digits
+            render_mod = importlib.import_module("pdf-toolkit.render")
+            _compute_page_digits = render_mod._compute_page_digits
         except ModuleNotFoundError as exc:
             self.skipTest(f"Missing optional dependency: {exc}")
 
@@ -42,7 +50,8 @@ class RenderHelperTests(unittest.TestCase):
 class SplitHelperTests(unittest.TestCase):
     def test_chunk_ranges(self) -> None:
         try:
-            from src.pdf-toolkit.split import _chunk_ranges
+            split_mod = importlib.import_module("pdf-toolkit.split")
+            _chunk_ranges = split_mod._chunk_ranges
         except ModuleNotFoundError as exc:
             self.skipTest(f"Missing optional dependency: {exc}")
 
@@ -53,7 +62,8 @@ class SplitHelperTests(unittest.TestCase):
 
     def test_compute_part_digits(self) -> None:
         try:
-            from src.pdf-toolkit.split import _compute_part_digits
+            split_mod = importlib.import_module("pdf-toolkit.split")
+            _compute_part_digits = split_mod._compute_part_digits
         except ModuleNotFoundError as exc:
             self.skipTest(f"Missing optional dependency: {exc}")
 
@@ -65,7 +75,8 @@ class SplitHelperTests(unittest.TestCase):
 class RotateHelperTests(unittest.TestCase):
     def test_collect_image_files_returns_only_files_sorted(self) -> None:
         try:
-            from src.pdf-toolkit.rotate import _collect_image_files
+            rotate_mod = importlib.import_module("pdf-toolkit.rotate")
+            _collect_image_files = rotate_mod._collect_image_files
         except ModuleNotFoundError as exc:
             self.skipTest(f"Missing optional dependency: {exc}")
 
