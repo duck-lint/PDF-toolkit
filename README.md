@@ -1,4 +1,4 @@
-# PDF Toolkit (Local Windows CLI)
+# PDF Toolkit (Local Windows CLI or Obsidian Plugin)
 
 Small, local, lightweight PDF utility CLI for Windows. Everything runs offline
 once dependencies are installed.
