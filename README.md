@@ -1,7 +1,8 @@
 # PDF Toolkit (Local Windows CLI)
 
-Small, local, lightweight PDF utilities for Windows. Everything runs offline
+Small, local, lightweight PDF utility CLI for Windows. Everything runs offline
 once dependencies are installed.
+Front-end through Obsidian plugin availible at https://github.com/duck-lint/pdf-toolkit-obsidian-plugin
 
 Features:
 - Render PDF pages to PNGs (PyMuPDF)
