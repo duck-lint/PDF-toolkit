@@ -327,6 +327,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Trim pixels on each side of detected gutter when splitting.",
     )
     page_images.add_argument(
+        "--outer_margin_frac",
+        type=float,
+        default=argparse.SUPPRESS,
+        help="Clamp crop into inner area away from outer edge (fraction of width).",
+    )
+    page_images.add_argument(
         "--crop_threshold",
         type=int,
         default=argparse.SUPPRESS,
@@ -343,6 +349,12 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=argparse.SUPPRESS,
         help="Inset final crop box inward after padding (pixels).",
+    )
+    page_images.add_argument(
+        "--symmetry_strategy",
+        choices=["independent", "match_max_width", "mirror_from_gutter"],
+        default=argparse.SUPPRESS,
+        help="How to enforce left/right crop symmetry after split.",
     )
     page_images.add_argument(
         "--min_area_frac",
@@ -573,11 +585,13 @@ def main(argv: list[str] | None = None) -> int:
                 split_ratio=float(effective_cfg["split_ratio"]),
                 gutter_search_frac=float(effective_cfg["gutter_search_frac"]),
                 gutter_trim_px=int(effective_cfg["gutter_trim_px"]),
+                outer_margin_frac=float(effective_cfg["outer_margin_frac"]),
                 x_step=int(effective_cfg["x_step"]),
                 y_step=int(effective_cfg["y_step"]),
                 crop_threshold=int(effective_cfg["crop_threshold"]),
                 pad_px=int(effective_cfg["pad_px"]),
                 edge_inset_px=int(effective_cfg["edge_inset_px"]),
+                symmetry_strategy=str(effective_cfg["symmetry_strategy"]),
                 min_area_frac=float(effective_cfg["min_area_frac"]),
                 overwrite=overwrite,
                 inplace=inplace,

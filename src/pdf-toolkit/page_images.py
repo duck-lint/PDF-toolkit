@@ -19,6 +19,7 @@ from .utils import UserError, ensure_dir, ensure_dir_path
 
 
 BBox = Tuple[int, int, int, int]
+SYMMETRY_STRATEGIES = {"independent", "match_max_width", "mirror_from_gutter"}
 
 
 def _collect_image_files(in_dir: Path, pattern: str) -> List[Path]:
@@ -32,11 +33,13 @@ def _validate_options(
     split_ratio: float,
     gutter_search_frac: float,
     gutter_trim_px: int,
+    outer_margin_frac: float,
     x_step: int,
     y_step: int,
     crop_threshold: int,
     pad_px: int,
     edge_inset_px: int,
+    symmetry_strategy: str,
     min_area_frac: float,
 ) -> None:
     """Validate user-facing options and raise clear errors."""
@@ -49,6 +52,8 @@ def _validate_options(
         raise UserError("--gutter_search_frac must be in the range (0, 1].")
     if gutter_trim_px < 0:
         raise UserError("--gutter_trim_px must be >= 0.")
+    if outer_margin_frac < 0 or outer_margin_frac >= 0.5:
+        raise UserError("--outer_margin_frac must be in the range [0, 0.5).")
     if x_step <= 0:
         raise UserError("--x_step must be a positive integer.")
     if y_step <= 0:
@@ -59,6 +64,11 @@ def _validate_options(
         raise UserError("--pad_px must be >= 0.")
     if edge_inset_px < 0:
         raise UserError("--edge_inset_px must be >= 0.")
+    if symmetry_strategy not in SYMMETRY_STRATEGIES:
+        raise UserError(
+            "--symmetry_strategy must be one of: "
+            "independent, match_max_width, mirror_from_gutter."
+        )
     if min_area_frac <= 0 or min_area_frac > 1:
         raise UserError("--min_area_frac must be in the range (0, 1].")
 
@@ -156,6 +166,8 @@ def find_crop_bbox(
     pad_px: int,
     min_area_frac: float,
     edge_inset_px: int = 0,
+    outer_margin_frac: float = 0.0,
+    is_left_page: bool = True,
 ) -> Tuple[BBox, bool, Optional[str]]:
     """Find a bright-region page bbox, with safe fallback to full image."""
 
@@ -192,6 +204,16 @@ def find_crop_bbox(
     if right <= left or bottom <= top:
         return full_bbox, True, "Invalid crop bounds after edge inset; used full image."
 
+    if outer_margin_frac > 0:
+        clamp_px = int(width * outer_margin_frac)
+        if is_left_page:
+            left = max(left, clamp_px)
+        else:
+            right = min(right, width - clamp_px)
+
+    if right <= left or bottom <= top:
+        return full_bbox, True, "Invalid crop bounds after outer margin clamp; used full image."
+
     return (left, top, right, bottom), False, None
 
 
@@ -200,6 +222,8 @@ def _crop_page_image(
     crop_threshold: int,
     pad_px: int,
     edge_inset_px: int,
+    outer_margin_frac: float,
+    is_left_page: bool,
     min_area_frac: float,
 ) -> Tuple[Image.Image, BBox, List[str]]:
     """Crop a page image and return cropped image + bbox + notes."""
@@ -209,6 +233,8 @@ def _crop_page_image(
         crop_threshold=crop_threshold,
         pad_px=pad_px,
         edge_inset_px=edge_inset_px,
+        outer_margin_frac=outer_margin_frac,
+        is_left_page=is_left_page,
         min_area_frac=min_area_frac,
     )
     cropped = image.crop(bbox)
@@ -218,6 +244,70 @@ def _crop_page_image(
     if used_fallback and note:
         notes.append(note)
     return cropped, bbox, notes
+
+
+def _bbox_width(bbox: BBox) -> int:
+    """Return bbox width in pixels."""
+
+    return bbox[2] - bbox[0]
+
+
+def _apply_split_symmetry_strategy(
+    left_bbox: BBox,
+    right_bbox: BBox,
+    left_image_width: int,
+    right_image_width: int,
+    gutter_x: int,
+    right_offset_x: int,
+    strategy: str,
+) -> Tuple[BBox, BBox, Optional[str]]:
+    """
+    Apply a split-page symmetry strategy.
+
+    Returns (left_bbox, right_bbox, note) where note is set when strategy
+    falls back to independent behavior.
+    """
+
+    if strategy == "independent":
+        return left_bbox, right_bbox, None
+
+    original_left = left_bbox
+    original_right = right_bbox
+    left_l, left_t, left_r, left_b = left_bbox
+    right_l, right_t, right_r, right_b = right_bbox
+
+    if strategy == "match_max_width":
+        left_width = left_r - left_l
+        right_width = right_r - right_l
+        max_width = max(left_width, right_width)
+
+        if left_width < max_width:
+            left_r = min(left_image_width, left_l + max_width)
+        if right_width < max_width:
+            right_l = max(0, right_r - max_width)
+    elif strategy == "mirror_from_gutter":
+        right_global_left = right_offset_x + right_l
+        left_gap = max(0, gutter_x - left_r)
+        right_gap = max(0, right_global_left - gutter_x)
+        target_gap = max(left_gap, right_gap)
+
+        left_r = min(left_image_width, max(left_l + 1, gutter_x - target_gap))
+        mirrored_right_global_left = gutter_x + target_gap
+        mirrored_right_local_left = mirrored_right_global_left - right_offset_x
+        right_l = max(0, min(right_r - 1, mirrored_right_local_left))
+    else:  # defensive fallback; _validate_options should prevent this.
+        return original_left, original_right, "Unknown symmetry strategy; used independent."
+
+    candidate_left: BBox = (left_l, left_t, left_r, left_b)
+    candidate_right: BBox = (right_l, right_t, right_r, right_b)
+    if candidate_left[2] <= candidate_left[0] or candidate_right[2] <= candidate_right[0]:
+        return (
+            original_left,
+            original_right,
+            f"Invalid symmetry bounds for strategy={strategy}; used independent.",
+        )
+
+    return candidate_left, candidate_right, None
 
 
 def _draw_debug_overlay(
@@ -278,6 +368,8 @@ def page_images_in_folder(
     debug: bool,
     gutter_trim_px: int = 0,
     edge_inset_px: int = 0,
+    outer_margin_frac: float = 0.0,
+    symmetry_strategy: str = "independent",
 ) -> None:
     """
     Process page images by optional spread split + page crop.
@@ -324,11 +416,13 @@ def page_images_in_folder(
             split_ratio=split_ratio,
             gutter_search_frac=gutter_search_frac,
             gutter_trim_px=gutter_trim_px,
+            outer_margin_frac=outer_margin_frac,
             x_step=x_step,
             y_step=y_step,
             crop_threshold=crop_threshold,
             pad_px=pad_px,
             edge_inset_px=edge_inset_px,
+            symmetry_strategy=symmetry_strategy,
             min_area_frac=min_area_frac,
         )
 
@@ -408,6 +502,7 @@ def page_images_in_folder(
             left_bbox: Optional[BBox] = None
             right_bbox: Optional[BBox] = None
             crop_bbox: Optional[BBox] = None
+            bbox_delta_width: Optional[int] = None
             produced_images: List[Image.Image]
 
             if should_split:
@@ -431,6 +526,8 @@ def page_images_in_folder(
                     crop_threshold=crop_threshold,
                     pad_px=pad_px,
                     edge_inset_px=edge_inset_px,
+                    outer_margin_frac=outer_margin_frac,
+                    is_left_page=True,
                     min_area_frac=min_area_frac,
                 )
                 right_cropped, right_bbox, right_notes = _crop_page_image(
@@ -438,10 +535,44 @@ def page_images_in_folder(
                     crop_threshold=crop_threshold,
                     pad_px=pad_px,
                     edge_inset_px=edge_inset_px,
+                    outer_margin_frac=outer_margin_frac,
+                    is_left_page=False,
                     min_area_frac=min_area_frac,
                 )
                 notes.extend([f"left: {note}" for note in left_notes])
                 notes.extend([f"right: {note}" for note in right_notes])
+
+                right_offset_x = source_image.width - right_half.width
+                original_left_bbox = left_bbox
+                original_right_bbox = right_bbox
+                left_bbox, right_bbox, symmetry_note = _apply_split_symmetry_strategy(
+                    left_bbox=left_bbox,
+                    right_bbox=right_bbox,
+                    left_image_width=left_half.width,
+                    right_image_width=right_half.width,
+                    gutter_x=gutter_x,
+                    right_offset_x=right_offset_x,
+                    strategy=symmetry_strategy,
+                )
+                if symmetry_note:
+                    notes.append(symmetry_note)
+
+                if left_bbox != original_left_bbox:
+                    left_cropped = left_half.crop(left_bbox)
+                    left_cropped.load()
+                if right_bbox != original_right_bbox:
+                    right_cropped = right_half.crop(right_bbox)
+                    right_cropped.load()
+
+                left_width = _bbox_width(left_bbox)
+                right_width = _bbox_width(right_bbox)
+                bbox_delta_width = abs(left_width - right_width)
+                if debug:
+                    print(
+                        f"[DEBUG] bbox_delta_width={bbox_delta_width} "
+                        f"left_width={left_width} right_width={right_width} "
+                        f"strategy={symmetry_strategy}"
+                    )
                 produced_images = [left_cropped, right_cropped]
             else:
                 cropped, crop_bbox, crop_notes = _crop_page_image(
@@ -449,6 +580,8 @@ def page_images_in_folder(
                     crop_threshold=crop_threshold,
                     pad_px=pad_px,
                     edge_inset_px=edge_inset_px,
+                    outer_margin_frac=0.0,
+                    is_left_page=True,
                     min_area_frac=min_area_frac,
                 )
                 notes.extend(crop_notes)
@@ -506,6 +639,8 @@ def page_images_in_folder(
                 action_details["left_bbox"] = left_bbox
             if right_bbox is not None:
                 action_details["right_bbox"] = right_bbox
+            if bbox_delta_width is not None:
+                action_details["bbox_delta_width"] = bbox_delta_width
             if crop_bbox is not None:
                 action_details["crop_bbox"] = crop_bbox
 
