@@ -25,11 +25,15 @@ if str(SRC_DIR) not in sys.path:
 try:
     page_images_mod = importlib.import_module("pdf-toolkit.page_images")
     apply_split_symmetry_strategy = page_images_mod._apply_split_symmetry_strategy
+    resolve_outer_clamp_px = page_images_mod._resolve_outer_clamp_px
+    detect_outer_black_bar_px = page_images_mod.detect_outer_black_bar_px
     detect_gutter_x = page_images_mod.detect_gutter_x
     find_crop_bbox = page_images_mod.find_crop_bbox
     split_spread_image = page_images_mod.split_spread_image
 except ModuleNotFoundError:  # pragma: no cover - optional dependency for local test runs
     apply_split_symmetry_strategy = None  # type: ignore[assignment]
+    resolve_outer_clamp_px = None  # type: ignore[assignment]
+    detect_outer_black_bar_px = None  # type: ignore[assignment]
     detect_gutter_x = None  # type: ignore[assignment]
     find_crop_bbox = None  # type: ignore[assignment]
     split_spread_image = None  # type: ignore[assignment]
@@ -46,8 +50,25 @@ def _make_synthetic_spread() -> Image.Image:
     return image.convert("RGB")
 
 
+def _make_outer_bar_page(side: str = "left", bar_px: int = 16) -> Image.Image:
+    """Create a bright page with optional dark strip at the outer edge."""
+
+    image = Image.new("L", (200, 120), color=245)
+    if bar_px > 0:
+        draw = ImageDraw.Draw(image)
+        if side == "left":
+            draw.rectangle((0, 0, bar_px - 1, 119), fill=5)
+        else:
+            draw.rectangle((200 - bar_px, 0, 199, 119), fill=5)
+    return image.convert("RGB")
+
+
 @unittest.skipIf(
-    Image is None or detect_gutter_x is None or apply_split_symmetry_strategy is None,
+    Image is None
+    or detect_gutter_x is None
+    or apply_split_symmetry_strategy is None
+    or resolve_outer_clamp_px is None
+    or detect_outer_black_bar_px is None,
     "Pillow is required for page-images tests.",
 )
 class PageImageHeuristicsTests(unittest.TestCase):
@@ -127,11 +148,132 @@ class PageImageHeuristicsTests(unittest.TestCase):
             pad_px=5,
             min_area_frac=0.25,
             edge_inset_px=0,
+            outer_margin_mode="fixed",
             outer_margin_frac=0.2,
             is_left_page=True,
         )
         self.assertFalse(used_fallback)
         self.assertGreaterEqual(bbox[0], int(left.width * 0.2))
+
+    def test_detect_outer_black_bar_px_detects_bar_and_clean_page(self) -> None:
+        with_bar = _make_outer_bar_page(side="left", bar_px=16)
+        without_bar = _make_outer_bar_page(side="left", bar_px=0)
+        detected = detect_outer_black_bar_px(
+            with_bar,
+            side="left",
+            search_frac=0.18,
+            dark_threshold=80,
+            dark_frac_cutoff=0.60,
+            release_frac=0.35,
+            min_run_px=4,
+        )
+        missing = detect_outer_black_bar_px(
+            without_bar,
+            side="left",
+            search_frac=0.18,
+            dark_threshold=80,
+            dark_frac_cutoff=0.60,
+            release_frac=0.35,
+            min_run_px=4,
+        )
+        self.assertGreater(detected, 0)
+        self.assertEqual(missing, 0)
+
+    def test_auto_mode_applies_detected_plus_pad_capped_by_max_frac(self) -> None:
+        page = _make_outer_bar_page(side="left", bar_px=16)
+        detected, applied = resolve_outer_clamp_px(
+            image=page,
+            outer_margin_mode="auto",
+            outer_margin_frac=0.0,
+            outer_margin_auto_max_frac=0.15,  # cap=30 at width 200
+            outer_margin_auto_search_frac=0.18,
+            outer_margin_dark_threshold=80,
+            outer_margin_dark_frac_cutoff=0.60,
+            outer_margin_release_frac=0.35,
+            outer_margin_min_run_px=4,
+            outer_margin_pad_px=4,
+            is_left_page=True,
+        )
+        self.assertEqual(detected, 16)
+        self.assertEqual(applied, 20)
+
+    def test_fixed_mode_clamp_matches_fraction(self) -> None:
+        page = _make_outer_bar_page(side="left", bar_px=0)
+        detected, applied = resolve_outer_clamp_px(
+            image=page,
+            outer_margin_mode="fixed",
+            outer_margin_frac=0.10,
+            outer_margin_auto_max_frac=0.15,
+            outer_margin_auto_search_frac=0.18,
+            outer_margin_dark_threshold=80,
+            outer_margin_dark_frac_cutoff=0.60,
+            outer_margin_release_frac=0.35,
+            outer_margin_min_run_px=4,
+            outer_margin_pad_px=4,
+            is_left_page=True,
+        )
+        self.assertEqual(detected, 0)
+        self.assertEqual(applied, int(page.width * 0.10))
+
+    def test_outer_margin_mode_off_matches_baseline_bbox(self) -> None:
+        page = _make_outer_bar_page(side="left", bar_px=16)
+        baseline, fallback_baseline, _ = find_crop_bbox(
+            image=page,
+            crop_threshold=180,
+            pad_px=0,
+            min_area_frac=0.25,
+            edge_inset_px=0,
+        )
+        off_mode, fallback_off_mode, _ = find_crop_bbox(
+            image=page,
+            crop_threshold=180,
+            pad_px=0,
+            min_area_frac=0.25,
+            edge_inset_px=0,
+            outer_margin_mode="off",
+        )
+        self.assertEqual(fallback_baseline, fallback_off_mode)
+        self.assertEqual(baseline, off_mode)
+
+    def test_auto_mode_does_not_shrink_clean_page(self) -> None:
+        clean_page = _make_outer_bar_page(side="left", bar_px=0)
+        detected = detect_outer_black_bar_px(
+            clean_page,
+            side="left",
+            search_frac=0.18,
+            dark_threshold=80,
+            dark_frac_cutoff=0.60,
+            release_frac=0.35,
+            min_run_px=4,
+        )
+        self.assertEqual(detected, 0)
+        baseline, fallback_baseline, _ = find_crop_bbox(
+            image=clean_page,
+            crop_threshold=180,
+            pad_px=0,
+            min_area_frac=0.25,
+            edge_inset_px=0,
+            outer_margin_mode="off",
+            is_left_page=True,
+        )
+        auto_mode, fallback_auto_mode, _ = find_crop_bbox(
+            image=clean_page,
+            crop_threshold=180,
+            pad_px=0,
+            min_area_frac=0.25,
+            edge_inset_px=0,
+            outer_margin_mode="auto",
+            outer_margin_auto_max_frac=0.15,
+            outer_margin_auto_search_frac=0.18,
+            outer_margin_dark_threshold=80,
+            outer_margin_dark_frac_cutoff=0.60,
+            outer_margin_release_frac=0.35,
+            outer_margin_min_run_px=4,
+            outer_margin_pad_px=4,
+            is_left_page=True,
+        )
+        self.assertEqual(fallback_baseline, fallback_auto_mode)
+        self.assertEqual(baseline, auto_mode)
 
     def test_symmetry_match_max_width_equalizes_widths(self) -> None:
         left_bbox, right_bbox, note = apply_split_symmetry_strategy(

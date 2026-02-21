@@ -33,7 +33,15 @@ def _validate_options(
     split_ratio: float,
     gutter_search_frac: float,
     gutter_trim_px: int,
+    outer_margin_mode: str,
     outer_margin_frac: float,
+    outer_margin_auto_max_frac: float,
+    outer_margin_auto_search_frac: float,
+    outer_margin_dark_threshold: int,
+    outer_margin_dark_frac_cutoff: float,
+    outer_margin_release_frac: float,
+    outer_margin_min_run_px: int,
+    outer_margin_pad_px: int,
     x_step: int,
     y_step: int,
     crop_threshold: int,
@@ -52,8 +60,30 @@ def _validate_options(
         raise UserError("--gutter_search_frac must be in the range (0, 1].")
     if gutter_trim_px < 0:
         raise UserError("--gutter_trim_px must be >= 0.")
-    if outer_margin_frac < 0 or outer_margin_frac >= 0.5:
-        raise UserError("--outer_margin_frac must be in the range [0, 0.5).")
+    if outer_margin_mode not in {"off", "fixed", "auto"}:
+        raise UserError("--outer_margin_mode must be one of: off, fixed, auto.")
+    if outer_margin_mode == "fixed" and (outer_margin_frac < 0 or outer_margin_frac > 0.25):
+        raise UserError("--outer_margin_frac must be in the range [0, 0.25] for fixed mode.")
+    if outer_margin_mode == "auto" and (
+        outer_margin_auto_max_frac < 0 or outer_margin_auto_max_frac > 0.25
+    ):
+        raise UserError(
+            "--outer_margin_auto_max_frac must be in the range [0, 0.25] for auto mode."
+        )
+    if outer_margin_auto_search_frac <= 0 or outer_margin_auto_search_frac > 0.5:
+        raise UserError("--outer_margin_auto_search_frac must be in the range (0, 0.5].")
+    if outer_margin_dark_threshold < 0 or outer_margin_dark_threshold > 255:
+        raise UserError("--outer_margin_dark_threshold must be in the range [0, 255].")
+    if outer_margin_dark_frac_cutoff < 0 or outer_margin_dark_frac_cutoff > 1:
+        raise UserError("--outer_margin_dark_frac_cutoff must be in the range [0, 1].")
+    if outer_margin_release_frac < 0 or outer_margin_release_frac > 1:
+        raise UserError("--outer_margin_release_frac must be in the range [0, 1].")
+    if outer_margin_release_frac >= outer_margin_dark_frac_cutoff:
+        raise UserError("--outer_margin_release_frac must be < --outer_margin_dark_frac_cutoff.")
+    if outer_margin_min_run_px < 1:
+        raise UserError("--outer_margin_min_run_px must be >= 1.")
+    if outer_margin_pad_px < 0:
+        raise UserError("--outer_margin_pad_px must be >= 0.")
     if x_step <= 0:
         raise UserError("--x_step must be a positive integer.")
     if y_step <= 0:
@@ -160,14 +190,117 @@ def split_spread_image(
     return left, right
 
 
+def detect_outer_black_bar_px(
+    image: Image.Image,
+    *,
+    side: str,
+    search_frac: float,
+    dark_threshold: int,
+    dark_frac_cutoff: float,
+    release_frac: float,
+    min_run_px: int,
+) -> int:
+    """
+    Detect dark outer-edge bar width in pixels.
+
+    Returns 0 when no stable outer bar is detected.
+    """
+
+    if side not in {"left", "right"}:
+        raise UserError("side must be 'left' or 'right' for outer bar detection.")
+
+    gray = image.convert("L") if image.mode != "L" else image
+    width, height = gray.size
+    if width <= 0 or height <= 0:
+        return 0
+
+    search_width = max(1, min(width, int(width * search_frac)))
+    pixels = gray.load()
+    saw_bar = False
+    consecutive_release = 0
+
+    for idx in range(search_width):
+        x = idx if side == "left" else (width - 1 - idx)
+        dark_count = 0
+        for y in range(height):
+            if int(pixels[x, y]) < dark_threshold:
+                dark_count += 1
+        dark_fraction = dark_count / height
+
+        if dark_fraction >= dark_frac_cutoff:
+            saw_bar = True
+            consecutive_release = 0
+            continue
+
+        if saw_bar and dark_fraction <= release_frac:
+            consecutive_release += 1
+            if consecutive_release >= min_run_px:
+                bar_width = idx - consecutive_release + 1
+                return max(0, bar_width)
+        elif saw_bar:
+            consecutive_release = 0
+
+    if saw_bar:
+        return search_width
+    return 0
+
+
+def _resolve_outer_clamp_px(
+    image: Image.Image,
+    *,
+    outer_margin_mode: str,
+    outer_margin_frac: float,
+    outer_margin_auto_max_frac: float,
+    outer_margin_auto_search_frac: float,
+    outer_margin_dark_threshold: int,
+    outer_margin_dark_frac_cutoff: float,
+    outer_margin_release_frac: float,
+    outer_margin_min_run_px: int,
+    outer_margin_pad_px: int,
+    is_left_page: bool,
+) -> Tuple[int, int]:
+    """Resolve detected bar width and applied outer clamp width."""
+
+    width, _ = image.size
+    if outer_margin_mode == "off":
+        return 0, 0
+    if outer_margin_mode == "fixed":
+        return 0, max(0, int(width * outer_margin_frac))
+
+    side = "left" if is_left_page else "right"
+    detected_bar_px = detect_outer_black_bar_px(
+        image,
+        side=side,
+        search_frac=outer_margin_auto_search_frac,
+        dark_threshold=outer_margin_dark_threshold,
+        dark_frac_cutoff=outer_margin_dark_frac_cutoff,
+        release_frac=outer_margin_release_frac,
+        min_run_px=outer_margin_min_run_px,
+    )
+    max_clamp_px = max(0, int(width * outer_margin_auto_max_frac))
+    if detected_bar_px <= 0:
+        return 0, 0
+    applied_clamp_px = min(detected_bar_px + outer_margin_pad_px, max_clamp_px)
+    return detected_bar_px, max(0, applied_clamp_px)
+
+
 def find_crop_bbox(
     image: Image.Image,
     crop_threshold: int,
     pad_px: int,
     min_area_frac: float,
     edge_inset_px: int = 0,
+    outer_margin_mode: str = "off",
     outer_margin_frac: float = 0.0,
+    outer_margin_auto_max_frac: float = 0.15,
+    outer_margin_auto_search_frac: float = 0.18,
+    outer_margin_dark_threshold: int = 80,
+    outer_margin_dark_frac_cutoff: float = 0.60,
+    outer_margin_release_frac: float = 0.35,
+    outer_margin_min_run_px: int = 12,
+    outer_margin_pad_px: int = 4,
     is_left_page: bool = True,
+    outer_clamp_debug: Optional[Dict[str, int | str]] = None,
 ) -> Tuple[BBox, bool, Optional[str]]:
     """Find a bright-region page bbox, with safe fallback to full image."""
 
@@ -204,8 +337,25 @@ def find_crop_bbox(
     if right <= left or bottom <= top:
         return full_bbox, True, "Invalid crop bounds after edge inset; used full image."
 
-    if outer_margin_frac > 0:
-        clamp_px = int(width * outer_margin_frac)
+    detected_bar_px, clamp_px = _resolve_outer_clamp_px(
+        image=image,
+        outer_margin_mode=outer_margin_mode,
+        outer_margin_frac=outer_margin_frac,
+        outer_margin_auto_max_frac=outer_margin_auto_max_frac,
+        outer_margin_auto_search_frac=outer_margin_auto_search_frac,
+        outer_margin_dark_threshold=outer_margin_dark_threshold,
+        outer_margin_dark_frac_cutoff=outer_margin_dark_frac_cutoff,
+        outer_margin_release_frac=outer_margin_release_frac,
+        outer_margin_min_run_px=outer_margin_min_run_px,
+        outer_margin_pad_px=outer_margin_pad_px,
+        is_left_page=is_left_page,
+    )
+    if outer_clamp_debug is not None:
+        outer_clamp_debug["mode"] = outer_margin_mode
+        outer_clamp_debug["detected_bar_px"] = int(detected_bar_px)
+        outer_clamp_debug["applied_clamp_px"] = int(clamp_px)
+
+    if clamp_px > 0:
         if is_left_page:
             left = max(left, clamp_px)
         else:
@@ -222,19 +372,37 @@ def _crop_page_image(
     crop_threshold: int,
     pad_px: int,
     edge_inset_px: int,
+    outer_margin_mode: str,
     outer_margin_frac: float,
+    outer_margin_auto_max_frac: float,
+    outer_margin_auto_search_frac: float,
+    outer_margin_dark_threshold: int,
+    outer_margin_dark_frac_cutoff: float,
+    outer_margin_release_frac: float,
+    outer_margin_min_run_px: int,
+    outer_margin_pad_px: int,
     is_left_page: bool,
     min_area_frac: float,
-) -> Tuple[Image.Image, BBox, List[str]]:
+) -> Tuple[Image.Image, BBox, List[str], Dict[str, int | str]]:
     """Crop a page image and return cropped image + bbox + notes."""
 
+    outer_clamp_debug: Dict[str, int | str] = {}
     bbox, used_fallback, note = find_crop_bbox(
         image=image,
         crop_threshold=crop_threshold,
         pad_px=pad_px,
         edge_inset_px=edge_inset_px,
+        outer_margin_mode=outer_margin_mode,
         outer_margin_frac=outer_margin_frac,
+        outer_margin_auto_max_frac=outer_margin_auto_max_frac,
+        outer_margin_auto_search_frac=outer_margin_auto_search_frac,
+        outer_margin_dark_threshold=outer_margin_dark_threshold,
+        outer_margin_dark_frac_cutoff=outer_margin_dark_frac_cutoff,
+        outer_margin_release_frac=outer_margin_release_frac,
+        outer_margin_min_run_px=outer_margin_min_run_px,
+        outer_margin_pad_px=outer_margin_pad_px,
         is_left_page=is_left_page,
+        outer_clamp_debug=outer_clamp_debug,
         min_area_frac=min_area_frac,
     )
     cropped = image.crop(bbox)
@@ -243,7 +411,7 @@ def _crop_page_image(
     notes: List[str] = []
     if used_fallback and note:
         notes.append(note)
-    return cropped, bbox, notes
+    return cropped, bbox, notes, outer_clamp_debug
 
 
 def _bbox_width(bbox: BBox) -> int:
@@ -260,6 +428,9 @@ def _apply_split_symmetry_strategy(
     gutter_x: int,
     right_offset_x: int,
     strategy: str,
+    gutter_trim_px: int = 0,
+    left_outer_clamp_px: int = 0,
+    right_outer_clamp_px: int = 0,
 ) -> Tuple[BBox, BBox, Optional[str]]:
     """
     Apply a split-page symmetry strategy.
@@ -276,31 +447,49 @@ def _apply_split_symmetry_strategy(
     left_l, left_t, left_r, left_b = left_bbox
     right_l, right_t, right_r, right_b = right_bbox
 
+    # Split boundaries already remove the gutter trim band, so these are hard bounds.
+    _ = gutter_trim_px
+    left_min_left = max(0, left_outer_clamp_px)
+    left_max_right = left_image_width
+    right_min_left = 0
+    right_max_right = max(1, right_image_width - max(0, right_outer_clamp_px))
+
     if strategy == "match_max_width":
         left_width = left_r - left_l
         right_width = right_r - right_l
         max_width = max(left_width, right_width)
 
         if left_width < max_width:
-            left_r = min(left_image_width, left_l + max_width)
+            left_r = min(left_max_right, left_l + max_width)
         if right_width < max_width:
-            right_l = max(0, right_r - max_width)
+            right_l = max(right_min_left, right_r - max_width)
     elif strategy == "mirror_from_gutter":
         right_global_left = right_offset_x + right_l
         left_gap = max(0, gutter_x - left_r)
         right_gap = max(0, right_global_left - gutter_x)
         target_gap = max(left_gap, right_gap)
 
-        left_r = min(left_image_width, max(left_l + 1, gutter_x - target_gap))
+        left_r = min(left_max_right, max(left_l + 1, gutter_x - target_gap))
         mirrored_right_global_left = gutter_x + target_gap
         mirrored_right_local_left = mirrored_right_global_left - right_offset_x
-        right_l = max(0, min(right_r - 1, mirrored_right_local_left))
+        right_l = max(right_min_left, min(right_r - 1, mirrored_right_local_left))
     else:  # defensive fallback; _validate_options should prevent this.
         return original_left, original_right, "Unknown symmetry strategy; used independent."
+
+    left_l = max(left_l, left_min_left)
+    right_r = min(right_r, right_max_right)
+    left_r = min(left_r, left_max_right)
+    right_l = max(right_l, right_min_left)
 
     candidate_left: BBox = (left_l, left_t, left_r, left_b)
     candidate_right: BBox = (right_l, right_t, right_r, right_b)
     if candidate_left[2] <= candidate_left[0] or candidate_right[2] <= candidate_right[0]:
+        if strategy == "mirror_from_gutter":
+            return (
+                original_left,
+                original_right,
+                "Mirror symmetry could not be satisfied safely; used independent.",
+            )
         return (
             original_left,
             original_right,
@@ -368,7 +557,15 @@ def page_images_in_folder(
     debug: bool,
     gutter_trim_px: int = 0,
     edge_inset_px: int = 0,
+    outer_margin_mode: str = "off",
     outer_margin_frac: float = 0.0,
+    outer_margin_auto_max_frac: float = 0.15,
+    outer_margin_auto_search_frac: float = 0.18,
+    outer_margin_dark_threshold: int = 80,
+    outer_margin_dark_frac_cutoff: float = 0.60,
+    outer_margin_release_frac: float = 0.35,
+    outer_margin_min_run_px: int = 12,
+    outer_margin_pad_px: int = 4,
     symmetry_strategy: str = "independent",
 ) -> None:
     """
@@ -416,7 +613,15 @@ def page_images_in_folder(
             split_ratio=split_ratio,
             gutter_search_frac=gutter_search_frac,
             gutter_trim_px=gutter_trim_px,
+            outer_margin_mode=outer_margin_mode,
             outer_margin_frac=outer_margin_frac,
+            outer_margin_auto_max_frac=outer_margin_auto_max_frac,
+            outer_margin_auto_search_frac=outer_margin_auto_search_frac,
+            outer_margin_dark_threshold=outer_margin_dark_threshold,
+            outer_margin_dark_frac_cutoff=outer_margin_dark_frac_cutoff,
+            outer_margin_release_frac=outer_margin_release_frac,
+            outer_margin_min_run_px=outer_margin_min_run_px,
+            outer_margin_pad_px=outer_margin_pad_px,
             x_step=x_step,
             y_step=y_step,
             crop_threshold=crop_threshold,
@@ -503,6 +708,9 @@ def page_images_in_folder(
             right_bbox: Optional[BBox] = None
             crop_bbox: Optional[BBox] = None
             bbox_delta_width: Optional[int] = None
+            left_outer_info: Dict[str, int | str] | None = None
+            right_outer_info: Dict[str, int | str] | None = None
+            crop_outer_info: Dict[str, int | str] | None = None
             produced_images: List[Image.Image]
 
             if should_split:
@@ -521,21 +729,37 @@ def page_images_in_folder(
                     gutter_x,
                     gutter_trim_px=gutter_trim_px,
                 )
-                left_cropped, left_bbox, left_notes = _crop_page_image(
+                left_cropped, left_bbox, left_notes, left_outer_info = _crop_page_image(
                     image=left_half,
                     crop_threshold=crop_threshold,
                     pad_px=pad_px,
                     edge_inset_px=edge_inset_px,
+                    outer_margin_mode=outer_margin_mode,
                     outer_margin_frac=outer_margin_frac,
+                    outer_margin_auto_max_frac=outer_margin_auto_max_frac,
+                    outer_margin_auto_search_frac=outer_margin_auto_search_frac,
+                    outer_margin_dark_threshold=outer_margin_dark_threshold,
+                    outer_margin_dark_frac_cutoff=outer_margin_dark_frac_cutoff,
+                    outer_margin_release_frac=outer_margin_release_frac,
+                    outer_margin_min_run_px=outer_margin_min_run_px,
+                    outer_margin_pad_px=outer_margin_pad_px,
                     is_left_page=True,
                     min_area_frac=min_area_frac,
                 )
-                right_cropped, right_bbox, right_notes = _crop_page_image(
+                right_cropped, right_bbox, right_notes, right_outer_info = _crop_page_image(
                     image=right_half,
                     crop_threshold=crop_threshold,
                     pad_px=pad_px,
                     edge_inset_px=edge_inset_px,
+                    outer_margin_mode=outer_margin_mode,
                     outer_margin_frac=outer_margin_frac,
+                    outer_margin_auto_max_frac=outer_margin_auto_max_frac,
+                    outer_margin_auto_search_frac=outer_margin_auto_search_frac,
+                    outer_margin_dark_threshold=outer_margin_dark_threshold,
+                    outer_margin_dark_frac_cutoff=outer_margin_dark_frac_cutoff,
+                    outer_margin_release_frac=outer_margin_release_frac,
+                    outer_margin_min_run_px=outer_margin_min_run_px,
+                    outer_margin_pad_px=outer_margin_pad_px,
                     is_left_page=False,
                     min_area_frac=min_area_frac,
                 )
@@ -553,6 +777,13 @@ def page_images_in_folder(
                     gutter_x=gutter_x,
                     right_offset_x=right_offset_x,
                     strategy=symmetry_strategy,
+                    gutter_trim_px=gutter_trim_px,
+                    left_outer_clamp_px=int(left_outer_info.get("applied_clamp_px", 0))
+                    if left_outer_info
+                    else 0,
+                    right_outer_clamp_px=int(right_outer_info.get("applied_clamp_px", 0))
+                    if right_outer_info
+                    else 0,
                 )
                 if symmetry_note:
                     notes.append(symmetry_note)
@@ -568,6 +799,18 @@ def page_images_in_folder(
                 right_width = _bbox_width(right_bbox)
                 bbox_delta_width = abs(left_width - right_width)
                 if debug:
+                    if left_outer_info is not None:
+                        print(
+                            f"[DEBUG] outer_clamp side=left mode={left_outer_info.get('mode', 'off')} "
+                            f"detected_bar_px={left_outer_info.get('detected_bar_px', 0)} "
+                            f"applied_clamp_px={left_outer_info.get('applied_clamp_px', 0)}"
+                        )
+                    if right_outer_info is not None:
+                        print(
+                            f"[DEBUG] outer_clamp side=right mode={right_outer_info.get('mode', 'off')} "
+                            f"detected_bar_px={right_outer_info.get('detected_bar_px', 0)} "
+                            f"applied_clamp_px={right_outer_info.get('applied_clamp_px', 0)}"
+                        )
                     print(
                         f"[DEBUG] bbox_delta_width={bbox_delta_width} "
                         f"left_width={left_width} right_width={right_width} "
@@ -575,17 +818,31 @@ def page_images_in_folder(
                     )
                 produced_images = [left_cropped, right_cropped]
             else:
-                cropped, crop_bbox, crop_notes = _crop_page_image(
+                cropped, crop_bbox, crop_notes, crop_outer_info = _crop_page_image(
                     image=source_image,
                     crop_threshold=crop_threshold,
                     pad_px=pad_px,
                     edge_inset_px=edge_inset_px,
+                    outer_margin_mode="off",
                     outer_margin_frac=0.0,
+                    outer_margin_auto_max_frac=outer_margin_auto_max_frac,
+                    outer_margin_auto_search_frac=outer_margin_auto_search_frac,
+                    outer_margin_dark_threshold=outer_margin_dark_threshold,
+                    outer_margin_dark_frac_cutoff=outer_margin_dark_frac_cutoff,
+                    outer_margin_release_frac=outer_margin_release_frac,
+                    outer_margin_min_run_px=outer_margin_min_run_px,
+                    outer_margin_pad_px=outer_margin_pad_px,
                     is_left_page=True,
                     min_area_frac=min_area_frac,
                 )
                 notes.extend(crop_notes)
                 produced_images = [cropped]
+                if debug and crop_outer_info is not None:
+                    print(
+                        f"[DEBUG] outer_clamp side=single mode={crop_outer_info.get('mode', 'off')} "
+                        f"detected_bar_px={crop_outer_info.get('detected_bar_px', 0)} "
+                        f"applied_clamp_px={crop_outer_info.get('applied_clamp_px', 0)}"
+                    )
 
             status = "dry-run" if dry_run else "written"
             if dry_run:
@@ -633,6 +890,13 @@ def page_images_in_folder(
                 "detected_spread": detected_spread,
                 "notes": notes,
             }
+            action_details["outer_clamp_mode"] = (
+                str(left_outer_info.get("mode", outer_margin_mode))
+                if left_outer_info is not None
+                else str(crop_outer_info.get("mode", "off"))
+                if crop_outer_info is not None
+                else "off"
+            )
             if gutter_x is not None:
                 action_details["gutter_x"] = gutter_x
             if left_bbox is not None:
@@ -641,6 +905,22 @@ def page_images_in_folder(
                 action_details["right_bbox"] = right_bbox
             if bbox_delta_width is not None:
                 action_details["bbox_delta_width"] = bbox_delta_width
+            if left_outer_info is not None and right_outer_info is not None:
+                action_details["outer_detected_bar_px"] = {
+                    "left": int(left_outer_info.get("detected_bar_px", 0)),
+                    "right": int(right_outer_info.get("detected_bar_px", 0)),
+                }
+                action_details["outer_applied_clamp_px"] = {
+                    "left": int(left_outer_info.get("applied_clamp_px", 0)),
+                    "right": int(right_outer_info.get("applied_clamp_px", 0)),
+                }
+            elif crop_outer_info is not None:
+                action_details["outer_detected_bar_px"] = int(
+                    crop_outer_info.get("detected_bar_px", 0)
+                )
+                action_details["outer_applied_clamp_px"] = int(
+                    crop_outer_info.get("applied_clamp_px", 0)
+                )
             if crop_bbox is not None:
                 action_details["crop_bbox"] = crop_bbox
 

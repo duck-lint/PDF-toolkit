@@ -327,10 +327,22 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Trim pixels on each side of detected gutter when splitting.",
     )
     page_images.add_argument(
+        "--outer_margin_mode",
+        choices=["off", "fixed", "auto"],
+        default=argparse.SUPPRESS,
+        help="Outer margin clamp mode: off, fixed, or auto black-bar detection.",
+    )
+    page_images.add_argument(
         "--outer_margin_frac",
         type=float,
         default=argparse.SUPPRESS,
         help="Clamp crop into inner area away from outer edge (fraction of width).",
+    )
+    page_images.add_argument(
+        "--outer_margin_auto_max_frac",
+        type=float,
+        default=argparse.SUPPRESS,
+        help="Auto mode clamp cap as fraction of half-page width.",
     )
     page_images.add_argument(
         "--crop_threshold",
@@ -585,7 +597,19 @@ def main(argv: list[str] | None = None) -> int:
                 split_ratio=float(effective_cfg["split_ratio"]),
                 gutter_search_frac=float(effective_cfg["gutter_search_frac"]),
                 gutter_trim_px=int(effective_cfg["gutter_trim_px"]),
+                outer_margin_mode=str(effective_cfg["outer_margin_mode"]),
                 outer_margin_frac=float(effective_cfg["outer_margin_frac"]),
+                outer_margin_auto_max_frac=float(effective_cfg["outer_margin_auto_max_frac"]),
+                outer_margin_auto_search_frac=float(
+                    effective_cfg["outer_margin_auto_search_frac"]
+                ),
+                outer_margin_dark_threshold=int(effective_cfg["outer_margin_dark_threshold"]),
+                outer_margin_dark_frac_cutoff=float(
+                    effective_cfg["outer_margin_dark_frac_cutoff"]
+                ),
+                outer_margin_release_frac=float(effective_cfg["outer_margin_release_frac"]),
+                outer_margin_min_run_px=int(effective_cfg["outer_margin_min_run_px"]),
+                outer_margin_pad_px=int(effective_cfg["outer_margin_pad_px"]),
                 x_step=int(effective_cfg["x_step"]),
                 y_step=int(effective_cfg["y_step"]),
                 crop_threshold=int(effective_cfg["crop_threshold"]),

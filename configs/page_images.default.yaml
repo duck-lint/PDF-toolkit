@@ -4,7 +4,15 @@ page_images:
   split_ratio: 1.25
   gutter_search_frac: 0.35
   gutter_trim_px: 0
+  outer_margin_mode: off
   outer_margin_frac: 0.0
+  outer_margin_auto_max_frac: 0.15
+  outer_margin_auto_search_frac: 0.18
+  outer_margin_dark_threshold: 80
+  outer_margin_dark_frac_cutoff: 0.60
+  outer_margin_release_frac: 0.35
+  outer_margin_min_run_px: 12
+  outer_margin_pad_px: 4
   x_step: 2
   y_step: 4
   crop_threshold: 180
