@@ -8,6 +8,8 @@ page_images:
   outer_margin_frac: 0.0
   outer_margin_auto_max_frac: 0.15
   outer_margin_auto_search_frac: 0.18
+  outer_margin_auto_y0_frac: 0.10
+  outer_margin_auto_y1_frac: 0.90
   outer_margin_dark_threshold: 80
   outer_margin_dark_frac_cutoff: 0.60
   outer_margin_release_frac: 0.35

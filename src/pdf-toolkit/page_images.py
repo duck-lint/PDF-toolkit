@@ -37,6 +37,8 @@ def _validate_options(
     outer_margin_frac: float,
     outer_margin_auto_max_frac: float,
     outer_margin_auto_search_frac: float,
+    outer_margin_auto_y0_frac: float,
+    outer_margin_auto_y1_frac: float,
     outer_margin_dark_threshold: int,
     outer_margin_dark_frac_cutoff: float,
     outer_margin_release_frac: float,
@@ -72,6 +74,16 @@ def _validate_options(
         )
     if outer_margin_auto_search_frac <= 0 or outer_margin_auto_search_frac > 0.5:
         raise UserError("--outer_margin_auto_search_frac must be in the range (0, 0.5].")
+    if outer_margin_auto_y0_frac < 0 or outer_margin_auto_y0_frac > 1:
+        raise UserError("--outer_margin_auto_y0_frac must be in the range [0, 1].")
+    if outer_margin_auto_y1_frac < 0 or outer_margin_auto_y1_frac > 1:
+        raise UserError("--outer_margin_auto_y1_frac must be in the range [0, 1].")
+    if outer_margin_auto_y0_frac >= outer_margin_auto_y1_frac:
+        raise UserError("--outer_margin_auto_y0_frac must be < --outer_margin_auto_y1_frac.")
+    if (outer_margin_auto_y1_frac - outer_margin_auto_y0_frac) < 0.2:
+        raise UserError(
+            "Auto outer clamp detection band must span at least 20% of page height."
+        )
     if outer_margin_dark_threshold < 0 or outer_margin_dark_threshold > 255:
         raise UserError("--outer_margin_dark_threshold must be in the range [0, 255].")
     if outer_margin_dark_frac_cutoff < 0 or outer_margin_dark_frac_cutoff > 1:
@@ -199,6 +211,8 @@ def detect_outer_black_bar_px(
     dark_frac_cutoff: float,
     release_frac: float,
     min_run_px: int,
+    y0_frac: float = 0.0,
+    y1_frac: float = 1.0,
 ) -> int:
     """
     Detect dark outer-edge bar width in pixels.
@@ -213,19 +227,21 @@ def detect_outer_black_bar_px(
     width, height = gray.size
     if width <= 0 or height <= 0:
         return 0
+    y0 = int(height * y0_frac)
+    y1 = int(height * y1_frac)
+    y0 = max(0, min(height - 1, y0))
+    y1 = max(y0 + 1, min(height, y1))
+    band_height = y1 - y0
 
     search_width = max(1, min(width, int(width * search_frac)))
-    pixels = gray.load()
     saw_bar = False
     consecutive_release = 0
 
     for idx in range(search_width):
         x = idx if side == "left" else (width - 1 - idx)
-        dark_count = 0
-        for y in range(height):
-            if int(pixels[x, y]) < dark_threshold:
-                dark_count += 1
-        dark_fraction = dark_count / height
+        col_data = gray.crop((x, y0, x + 1, y1)).getdata()
+        dark_count = sum(1 for value in col_data if int(value) < dark_threshold)
+        dark_fraction = dark_count / band_height
 
         if dark_fraction >= dark_frac_cutoff:
             saw_bar = True
@@ -252,6 +268,8 @@ def _resolve_outer_clamp_px(
     outer_margin_frac: float,
     outer_margin_auto_max_frac: float,
     outer_margin_auto_search_frac: float,
+    outer_margin_auto_y0_frac: float,
+    outer_margin_auto_y1_frac: float,
     outer_margin_dark_threshold: int,
     outer_margin_dark_frac_cutoff: float,
     outer_margin_release_frac: float,
@@ -276,6 +294,8 @@ def _resolve_outer_clamp_px(
         dark_frac_cutoff=outer_margin_dark_frac_cutoff,
         release_frac=outer_margin_release_frac,
         min_run_px=outer_margin_min_run_px,
+        y0_frac=outer_margin_auto_y0_frac,
+        y1_frac=outer_margin_auto_y1_frac,
     )
     max_clamp_px = max(0, int(width * outer_margin_auto_max_frac))
     if detected_bar_px <= 0:
@@ -294,13 +314,15 @@ def find_crop_bbox(
     outer_margin_frac: float = 0.0,
     outer_margin_auto_max_frac: float = 0.15,
     outer_margin_auto_search_frac: float = 0.18,
+    outer_margin_auto_y0_frac: float = 0.10,
+    outer_margin_auto_y1_frac: float = 0.90,
     outer_margin_dark_threshold: int = 80,
     outer_margin_dark_frac_cutoff: float = 0.60,
     outer_margin_release_frac: float = 0.35,
     outer_margin_min_run_px: int = 12,
     outer_margin_pad_px: int = 4,
     is_left_page: bool = True,
-    outer_clamp_debug: Optional[Dict[str, int | str]] = None,
+    outer_clamp_debug: Optional[Dict[str, int | str | float]] = None,
 ) -> Tuple[BBox, bool, Optional[str]]:
     """Find a bright-region page bbox, with safe fallback to full image."""
 
@@ -343,6 +365,8 @@ def find_crop_bbox(
         outer_margin_frac=outer_margin_frac,
         outer_margin_auto_max_frac=outer_margin_auto_max_frac,
         outer_margin_auto_search_frac=outer_margin_auto_search_frac,
+        outer_margin_auto_y0_frac=outer_margin_auto_y0_frac,
+        outer_margin_auto_y1_frac=outer_margin_auto_y1_frac,
         outer_margin_dark_threshold=outer_margin_dark_threshold,
         outer_margin_dark_frac_cutoff=outer_margin_dark_frac_cutoff,
         outer_margin_release_frac=outer_margin_release_frac,
@@ -354,6 +378,8 @@ def find_crop_bbox(
         outer_clamp_debug["mode"] = outer_margin_mode
         outer_clamp_debug["detected_bar_px"] = int(detected_bar_px)
         outer_clamp_debug["applied_clamp_px"] = int(clamp_px)
+        outer_clamp_debug["detect_y0_frac"] = float(outer_margin_auto_y0_frac)
+        outer_clamp_debug["detect_y1_frac"] = float(outer_margin_auto_y1_frac)
 
     if clamp_px > 0:
         if is_left_page:
@@ -376,6 +402,8 @@ def _crop_page_image(
     outer_margin_frac: float,
     outer_margin_auto_max_frac: float,
     outer_margin_auto_search_frac: float,
+    outer_margin_auto_y0_frac: float,
+    outer_margin_auto_y1_frac: float,
     outer_margin_dark_threshold: int,
     outer_margin_dark_frac_cutoff: float,
     outer_margin_release_frac: float,
@@ -383,10 +411,10 @@ def _crop_page_image(
     outer_margin_pad_px: int,
     is_left_page: bool,
     min_area_frac: float,
-) -> Tuple[Image.Image, BBox, List[str], Dict[str, int | str]]:
+) -> Tuple[Image.Image, BBox, List[str], Dict[str, int | str | float]]:
     """Crop a page image and return cropped image + bbox + notes."""
 
-    outer_clamp_debug: Dict[str, int | str] = {}
+    outer_clamp_debug: Dict[str, int | str | float] = {}
     bbox, used_fallback, note = find_crop_bbox(
         image=image,
         crop_threshold=crop_threshold,
@@ -396,6 +424,8 @@ def _crop_page_image(
         outer_margin_frac=outer_margin_frac,
         outer_margin_auto_max_frac=outer_margin_auto_max_frac,
         outer_margin_auto_search_frac=outer_margin_auto_search_frac,
+        outer_margin_auto_y0_frac=outer_margin_auto_y0_frac,
+        outer_margin_auto_y1_frac=outer_margin_auto_y1_frac,
         outer_margin_dark_threshold=outer_margin_dark_threshold,
         outer_margin_dark_frac_cutoff=outer_margin_dark_frac_cutoff,
         outer_margin_release_frac=outer_margin_release_frac,
@@ -561,6 +591,8 @@ def page_images_in_folder(
     outer_margin_frac: float = 0.0,
     outer_margin_auto_max_frac: float = 0.15,
     outer_margin_auto_search_frac: float = 0.18,
+    outer_margin_auto_y0_frac: float = 0.10,
+    outer_margin_auto_y1_frac: float = 0.90,
     outer_margin_dark_threshold: int = 80,
     outer_margin_dark_frac_cutoff: float = 0.60,
     outer_margin_release_frac: float = 0.35,
@@ -617,6 +649,8 @@ def page_images_in_folder(
             outer_margin_frac=outer_margin_frac,
             outer_margin_auto_max_frac=outer_margin_auto_max_frac,
             outer_margin_auto_search_frac=outer_margin_auto_search_frac,
+            outer_margin_auto_y0_frac=outer_margin_auto_y0_frac,
+            outer_margin_auto_y1_frac=outer_margin_auto_y1_frac,
             outer_margin_dark_threshold=outer_margin_dark_threshold,
             outer_margin_dark_frac_cutoff=outer_margin_dark_frac_cutoff,
             outer_margin_release_frac=outer_margin_release_frac,
@@ -708,9 +742,9 @@ def page_images_in_folder(
             right_bbox: Optional[BBox] = None
             crop_bbox: Optional[BBox] = None
             bbox_delta_width: Optional[int] = None
-            left_outer_info: Dict[str, int | str] | None = None
-            right_outer_info: Dict[str, int | str] | None = None
-            crop_outer_info: Dict[str, int | str] | None = None
+            left_outer_info: Dict[str, int | str | float] | None = None
+            right_outer_info: Dict[str, int | str | float] | None = None
+            crop_outer_info: Dict[str, int | str | float] | None = None
             produced_images: List[Image.Image]
 
             if should_split:
@@ -738,6 +772,8 @@ def page_images_in_folder(
                     outer_margin_frac=outer_margin_frac,
                     outer_margin_auto_max_frac=outer_margin_auto_max_frac,
                     outer_margin_auto_search_frac=outer_margin_auto_search_frac,
+                    outer_margin_auto_y0_frac=outer_margin_auto_y0_frac,
+                    outer_margin_auto_y1_frac=outer_margin_auto_y1_frac,
                     outer_margin_dark_threshold=outer_margin_dark_threshold,
                     outer_margin_dark_frac_cutoff=outer_margin_dark_frac_cutoff,
                     outer_margin_release_frac=outer_margin_release_frac,
@@ -755,6 +791,8 @@ def page_images_in_folder(
                     outer_margin_frac=outer_margin_frac,
                     outer_margin_auto_max_frac=outer_margin_auto_max_frac,
                     outer_margin_auto_search_frac=outer_margin_auto_search_frac,
+                    outer_margin_auto_y0_frac=outer_margin_auto_y0_frac,
+                    outer_margin_auto_y1_frac=outer_margin_auto_y1_frac,
                     outer_margin_dark_threshold=outer_margin_dark_threshold,
                     outer_margin_dark_frac_cutoff=outer_margin_dark_frac_cutoff,
                     outer_margin_release_frac=outer_margin_release_frac,
@@ -803,13 +841,17 @@ def page_images_in_folder(
                         print(
                             f"[DEBUG] outer_clamp side=left mode={left_outer_info.get('mode', 'off')} "
                             f"detected_bar_px={left_outer_info.get('detected_bar_px', 0)} "
-                            f"applied_clamp_px={left_outer_info.get('applied_clamp_px', 0)}"
+                            f"applied_clamp_px={left_outer_info.get('applied_clamp_px', 0)} "
+                            f"y0={left_outer_info.get('detect_y0_frac', outer_margin_auto_y0_frac)} "
+                            f"y1={left_outer_info.get('detect_y1_frac', outer_margin_auto_y1_frac)}"
                         )
                     if right_outer_info is not None:
                         print(
                             f"[DEBUG] outer_clamp side=right mode={right_outer_info.get('mode', 'off')} "
                             f"detected_bar_px={right_outer_info.get('detected_bar_px', 0)} "
-                            f"applied_clamp_px={right_outer_info.get('applied_clamp_px', 0)}"
+                            f"applied_clamp_px={right_outer_info.get('applied_clamp_px', 0)} "
+                            f"y0={right_outer_info.get('detect_y0_frac', outer_margin_auto_y0_frac)} "
+                            f"y1={right_outer_info.get('detect_y1_frac', outer_margin_auto_y1_frac)}"
                         )
                     print(
                         f"[DEBUG] bbox_delta_width={bbox_delta_width} "
@@ -827,6 +869,8 @@ def page_images_in_folder(
                     outer_margin_frac=0.0,
                     outer_margin_auto_max_frac=outer_margin_auto_max_frac,
                     outer_margin_auto_search_frac=outer_margin_auto_search_frac,
+                    outer_margin_auto_y0_frac=outer_margin_auto_y0_frac,
+                    outer_margin_auto_y1_frac=outer_margin_auto_y1_frac,
                     outer_margin_dark_threshold=outer_margin_dark_threshold,
                     outer_margin_dark_frac_cutoff=outer_margin_dark_frac_cutoff,
                     outer_margin_release_frac=outer_margin_release_frac,
@@ -841,7 +885,9 @@ def page_images_in_folder(
                     print(
                         f"[DEBUG] outer_clamp side=single mode={crop_outer_info.get('mode', 'off')} "
                         f"detected_bar_px={crop_outer_info.get('detected_bar_px', 0)} "
-                        f"applied_clamp_px={crop_outer_info.get('applied_clamp_px', 0)}"
+                        f"applied_clamp_px={crop_outer_info.get('applied_clamp_px', 0)} "
+                        f"y0={crop_outer_info.get('detect_y0_frac', outer_margin_auto_y0_frac)} "
+                        f"y1={crop_outer_info.get('detect_y1_frac', outer_margin_auto_y1_frac)}"
                     )
 
             status = "dry-run" if dry_run else "written"
@@ -914,12 +960,24 @@ def page_images_in_folder(
                     "left": int(left_outer_info.get("applied_clamp_px", 0)),
                     "right": int(right_outer_info.get("applied_clamp_px", 0)),
                 }
+                action_details["outer_detect_y0_frac"] = float(
+                    left_outer_info.get("detect_y0_frac", outer_margin_auto_y0_frac)
+                )
+                action_details["outer_detect_y1_frac"] = float(
+                    left_outer_info.get("detect_y1_frac", outer_margin_auto_y1_frac)
+                )
             elif crop_outer_info is not None:
                 action_details["outer_detected_bar_px"] = int(
                     crop_outer_info.get("detected_bar_px", 0)
                 )
                 action_details["outer_applied_clamp_px"] = int(
                     crop_outer_info.get("applied_clamp_px", 0)
+                )
+                action_details["outer_detect_y0_frac"] = float(
+                    crop_outer_info.get("detect_y0_frac", outer_margin_auto_y0_frac)
+                )
+                action_details["outer_detect_y1_frac"] = float(
+                    crop_outer_info.get("detect_y1_frac", outer_margin_auto_y1_frac)
                 )
             if crop_bbox is not None:
                 action_details["crop_bbox"] = crop_bbox

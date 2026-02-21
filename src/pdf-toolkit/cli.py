@@ -345,6 +345,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Auto mode clamp cap as fraction of half-page width.",
     )
     page_images.add_argument(
+        "--outer_margin_auto_y0_frac",
+        type=float,
+        default=argparse.SUPPRESS,
+        help="(advanced) Auto clamp detection band start as height fraction.",
+    )
+    page_images.add_argument(
+        "--outer_margin_auto_y1_frac",
+        type=float,
+        default=argparse.SUPPRESS,
+        help="(advanced) Auto clamp detection band end as height fraction.",
+    )
+    page_images.add_argument(
         "--crop_threshold",
         type=int,
         default=argparse.SUPPRESS,
@@ -603,6 +615,8 @@ def main(argv: list[str] | None = None) -> int:
                 outer_margin_auto_search_frac=float(
                     effective_cfg["outer_margin_auto_search_frac"]
                 ),
+                outer_margin_auto_y0_frac=float(effective_cfg["outer_margin_auto_y0_frac"]),
+                outer_margin_auto_y1_frac=float(effective_cfg["outer_margin_auto_y1_frac"]),
                 outer_margin_dark_threshold=int(effective_cfg["outer_margin_dark_threshold"]),
                 outer_margin_dark_frac_cutoff=float(
                     effective_cfg["outer_margin_dark_frac_cutoff"]

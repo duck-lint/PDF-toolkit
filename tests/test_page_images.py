@@ -63,6 +63,23 @@ def _make_outer_bar_page(side: str = "left", bar_px: int = 16) -> Image.Image:
     return image.convert("RGB")
 
 
+def _make_partial_height_outer_bar_page(side: str = "left", bar_px: int = 16) -> Image.Image:
+    """Create a page with outer dark strip only in middle 20%-80% height band."""
+
+    width = 200
+    height = 120
+    y0 = int(height * 0.2)
+    y1 = int(height * 0.8)
+    image = Image.new("L", (width, height), color=245)
+    if bar_px > 0:
+        draw = ImageDraw.Draw(image)
+        if side == "left":
+            draw.rectangle((0, y0, bar_px - 1, y1 - 1), fill=5)
+        else:
+            draw.rectangle((width - bar_px, y0, width - 1, y1 - 1), fill=5)
+    return image.convert("RGB")
+
+
 @unittest.skipIf(
     Image is None
     or detect_gutter_x is None
@@ -187,6 +204,8 @@ class PageImageHeuristicsTests(unittest.TestCase):
             outer_margin_frac=0.0,
             outer_margin_auto_max_frac=0.15,  # cap=30 at width 200
             outer_margin_auto_search_frac=0.18,
+            outer_margin_auto_y0_frac=0.10,
+            outer_margin_auto_y1_frac=0.90,
             outer_margin_dark_threshold=80,
             outer_margin_dark_frac_cutoff=0.60,
             outer_margin_release_frac=0.35,
@@ -205,6 +224,8 @@ class PageImageHeuristicsTests(unittest.TestCase):
             outer_margin_frac=0.10,
             outer_margin_auto_max_frac=0.15,
             outer_margin_auto_search_frac=0.18,
+            outer_margin_auto_y0_frac=0.10,
+            outer_margin_auto_y1_frac=0.90,
             outer_margin_dark_threshold=80,
             outer_margin_dark_frac_cutoff=0.60,
             outer_margin_release_frac=0.35,
@@ -265,6 +286,8 @@ class PageImageHeuristicsTests(unittest.TestCase):
             outer_margin_mode="auto",
             outer_margin_auto_max_frac=0.15,
             outer_margin_auto_search_frac=0.18,
+            outer_margin_auto_y0_frac=0.10,
+            outer_margin_auto_y1_frac=0.90,
             outer_margin_dark_threshold=80,
             outer_margin_dark_frac_cutoff=0.60,
             outer_margin_release_frac=0.35,
@@ -274,6 +297,67 @@ class PageImageHeuristicsTests(unittest.TestCase):
         )
         self.assertEqual(fallback_baseline, fallback_auto_mode)
         self.assertEqual(baseline, auto_mode)
+
+    def test_banded_detection_fixes_partial_height_bar_underestimate(self) -> None:
+        page = _make_partial_height_outer_bar_page(side="left", bar_px=16)
+        no_band = detect_outer_black_bar_px(
+            page,
+            side="left",
+            search_frac=0.18,
+            dark_threshold=80,
+            dark_frac_cutoff=0.70,
+            release_frac=0.35,
+            min_run_px=4,
+            y0_frac=0.0,
+            y1_frac=1.0,
+        )
+        with_band = detect_outer_black_bar_px(
+            page,
+            side="left",
+            search_frac=0.18,
+            dark_threshold=80,
+            dark_frac_cutoff=0.70,
+            release_frac=0.35,
+            min_run_px=4,
+            y0_frac=0.2,
+            y1_frac=0.8,
+        )
+        self.assertLess(no_band, with_band)
+        self.assertGreaterEqual(with_band, 14)
+
+    def test_auto_mode_clamp_increases_with_detection_band_on_partial_bar(self) -> None:
+        page = _make_partial_height_outer_bar_page(side="left", bar_px=16)
+        _, applied_no_band = resolve_outer_clamp_px(
+            image=page,
+            outer_margin_mode="auto",
+            outer_margin_frac=0.0,
+            outer_margin_auto_max_frac=0.15,
+            outer_margin_auto_search_frac=0.18,
+            outer_margin_auto_y0_frac=0.0,
+            outer_margin_auto_y1_frac=1.0,
+            outer_margin_dark_threshold=80,
+            outer_margin_dark_frac_cutoff=0.70,
+            outer_margin_release_frac=0.35,
+            outer_margin_min_run_px=4,
+            outer_margin_pad_px=4,
+            is_left_page=True,
+        )
+        _, applied_banded = resolve_outer_clamp_px(
+            image=page,
+            outer_margin_mode="auto",
+            outer_margin_frac=0.0,
+            outer_margin_auto_max_frac=0.15,
+            outer_margin_auto_search_frac=0.18,
+            outer_margin_auto_y0_frac=0.2,
+            outer_margin_auto_y1_frac=0.8,
+            outer_margin_dark_threshold=80,
+            outer_margin_dark_frac_cutoff=0.70,
+            outer_margin_release_frac=0.35,
+            outer_margin_min_run_px=4,
+            outer_margin_pad_px=4,
+            is_left_page=True,
+        )
+        self.assertGreater(applied_banded, applied_no_band)
 
     def test_symmetry_match_max_width_equalizes_widths(self) -> None:
         left_bbox, right_bbox, note = apply_split_symmetry_strategy(
