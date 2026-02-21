@@ -31,10 +31,12 @@ def _validate_options(
     mode: str,
     split_ratio: float,
     gutter_search_frac: float,
+    gutter_trim_px: int,
     x_step: int,
     y_step: int,
     crop_threshold: int,
     pad_px: int,
+    edge_inset_px: int,
     min_area_frac: float,
 ) -> None:
     """Validate user-facing options and raise clear errors."""
@@ -45,6 +47,8 @@ def _validate_options(
         raise UserError("--split_ratio must be > 0.")
     if gutter_search_frac <= 0 or gutter_search_frac > 1:
         raise UserError("--gutter_search_frac must be in the range (0, 1].")
+    if gutter_trim_px < 0:
+        raise UserError("--gutter_trim_px must be >= 0.")
     if x_step <= 0:
         raise UserError("--x_step must be a positive integer.")
     if y_step <= 0:
@@ -53,6 +57,8 @@ def _validate_options(
         raise UserError("--crop_threshold must be in the range [0, 255].")
     if pad_px < 0:
         raise UserError("--pad_px must be >= 0.")
+    if edge_inset_px < 0:
+        raise UserError("--edge_inset_px must be >= 0.")
     if min_area_frac <= 0 or min_area_frac > 1:
         raise UserError("--min_area_frac must be in the range (0, 1].")
 
@@ -114,15 +120,33 @@ def detect_gutter_x(
     return best_x, fallback_to_center
 
 
-def split_spread_image(image: Image.Image, gutter_x: int) -> Tuple[Image.Image, Image.Image]:
+def split_spread_image(
+    image: Image.Image, gutter_x: int, gutter_trim_px: int = 0
+) -> Tuple[Image.Image, Image.Image]:
     """Split a spread image into left and right halves at gutter_x."""
 
     width, height = image.size
     if width < 2:
         raise UserError("Image is too narrow to split into two pages.")
     safe_gutter_x = max(1, min(width - 1, gutter_x))
-    left = image.crop((0, 0, safe_gutter_x, height))
-    right = image.crop((safe_gutter_x, 0, width, height))
+    trim = max(0, gutter_trim_px)
+
+    left_right = max(1, safe_gutter_x - trim)
+    right_left = min(width - 1, safe_gutter_x + trim)
+
+    if left_right <= 0:
+        left_right = 1
+    if right_left >= width:
+        right_left = width - 1
+    if right_left < left_right:
+        mid = safe_gutter_x
+        left_right = max(1, min(width - 1, mid))
+        right_left = max(left_right + 1, min(width - 1, mid + 1))
+        if right_left > width - 1:
+            right_left = width - 1
+
+    left = image.crop((0, 0, left_right, height))
+    right = image.crop((right_left, 0, width, height))
     return left, right
 
 
@@ -131,6 +155,7 @@ def find_crop_bbox(
     crop_threshold: int,
     pad_px: int,
     min_area_frac: float,
+    edge_inset_px: int = 0,
 ) -> Tuple[BBox, bool, Optional[str]]:
     """Find a bright-region page bbox, with safe fallback to full image."""
 
@@ -157,6 +182,16 @@ def find_crop_bbox(
     if right <= left or bottom <= top:
         return full_bbox, True, "Invalid crop bounds after padding; used full image."
 
+    inset = max(0, edge_inset_px)
+    if inset > 0:
+        left = min(right - 1, left + inset)
+        top = min(bottom - 1, top + inset)
+        right = max(left + 1, right - inset)
+        bottom = max(top + 1, bottom - inset)
+
+    if right <= left or bottom <= top:
+        return full_bbox, True, "Invalid crop bounds after edge inset; used full image."
+
     return (left, top, right, bottom), False, None
 
 
@@ -164,6 +199,7 @@ def _crop_page_image(
     image: Image.Image,
     crop_threshold: int,
     pad_px: int,
+    edge_inset_px: int,
     min_area_frac: float,
 ) -> Tuple[Image.Image, BBox, List[str]]:
     """Crop a page image and return cropped image + bbox + notes."""
@@ -172,6 +208,7 @@ def _crop_page_image(
         image=image,
         crop_threshold=crop_threshold,
         pad_px=pad_px,
+        edge_inset_px=edge_inset_px,
         min_area_frac=min_area_frac,
     )
     cropped = image.crop(bbox)
@@ -239,6 +276,8 @@ def page_images_in_folder(
     command_string: str,
     options: Dict[str, object],
     debug: bool,
+    gutter_trim_px: int = 0,
+    edge_inset_px: int = 0,
 ) -> None:
     """
     Process page images by optional spread split + page crop.
@@ -284,10 +323,12 @@ def page_images_in_folder(
             mode=mode,
             split_ratio=split_ratio,
             gutter_search_frac=gutter_search_frac,
+            gutter_trim_px=gutter_trim_px,
             x_step=x_step,
             y_step=y_step,
             crop_threshold=crop_threshold,
             pad_px=pad_px,
+            edge_inset_px=edge_inset_px,
             min_area_frac=min_area_frac,
         )
 
@@ -380,17 +421,23 @@ def page_images_in_folder(
                 if gutter_fallback:
                     notes.append("Gutter candidate near edge; fell back to center.")
 
-                left_half, right_half = split_spread_image(source_image, gutter_x)
+                left_half, right_half = split_spread_image(
+                    source_image,
+                    gutter_x,
+                    gutter_trim_px=gutter_trim_px,
+                )
                 left_cropped, left_bbox, left_notes = _crop_page_image(
                     image=left_half,
                     crop_threshold=crop_threshold,
                     pad_px=pad_px,
+                    edge_inset_px=edge_inset_px,
                     min_area_frac=min_area_frac,
                 )
                 right_cropped, right_bbox, right_notes = _crop_page_image(
                     image=right_half,
                     crop_threshold=crop_threshold,
                     pad_px=pad_px,
+                    edge_inset_px=edge_inset_px,
                     min_area_frac=min_area_frac,
                 )
                 notes.extend([f"left: {note}" for note in left_notes])
@@ -401,6 +448,7 @@ def page_images_in_folder(
                     image=source_image,
                     crop_threshold=crop_threshold,
                     pad_px=pad_px,
+                    edge_inset_px=edge_inset_px,
                     min_area_frac=min_area_frac,
                 )
                 notes.extend(crop_notes)

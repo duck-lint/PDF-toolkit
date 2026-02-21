@@ -123,6 +123,16 @@ Never split (crop-only):
 python -m pdf-toolkit page-images --in_dir "out\pages" --out_dir "out\pages_single" --mode crop
 ```
 
+Useful page-images tuning flags:
+- `--gutter_trim_px`: shave pixels from both sides of the detected gutter when splitting spreads.
+- `--edge_inset_px`: inset the final padded crop box inward to remove faint border noise.
+
+Example with both knobs:
+
+```powershell
+python -m pdf-toolkit page-images --in_dir "out\pages" --out_dir "out\pages_single" --mode split --gutter_trim_px 20 --edge_inset_px 6 --debug
+```
+
 ### Page-images YAML config
 
 Dump the default YAML config:

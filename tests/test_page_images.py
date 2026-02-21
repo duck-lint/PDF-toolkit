@@ -68,6 +68,16 @@ class PageImageHeuristicsTests(unittest.TestCase):
         self.assertEqual(right.size[1], spread.size[1])
         self.assertEqual(left.size[0] + right.size[0], spread.size[0])
 
+    def test_split_with_gutter_trim_reduces_total_width(self) -> None:
+        spread = _make_synthetic_spread()
+        left_no_trim, right_no_trim = split_spread_image(spread, gutter_x=200, gutter_trim_px=0)
+        left_trimmed, right_trimmed = split_spread_image(spread, gutter_x=200, gutter_trim_px=10)
+
+        total_no_trim = left_no_trim.size[0] + right_no_trim.size[0]
+        total_trimmed = left_trimmed.size[0] + right_trimmed.size[0]
+        self.assertEqual(total_no_trim, spread.size[0])
+        self.assertEqual(total_no_trim - total_trimmed, 20)
+
     def test_crop_bbox_reduces_background(self) -> None:
         spread = _make_synthetic_spread()
         left, _ = split_spread_image(spread, gutter_x=200)
@@ -80,6 +90,31 @@ class PageImageHeuristicsTests(unittest.TestCase):
         self.assertFalse(used_fallback)
         self.assertIsNone(note)
         self.assertNotEqual(bbox, (0, 0, left.width, left.height))
+
+    def test_crop_bbox_edge_inset_shrinks_bbox(self) -> None:
+        spread = _make_synthetic_spread()
+        left, _ = split_spread_image(spread, gutter_x=200)
+        bbox_no_inset, used_fallback_no_inset, _ = find_crop_bbox(
+            image=left,
+            crop_threshold=180,
+            pad_px=5,
+            min_area_frac=0.25,
+            edge_inset_px=0,
+        )
+        bbox_inset, used_fallback_inset, _ = find_crop_bbox(
+            image=left,
+            crop_threshold=180,
+            pad_px=5,
+            min_area_frac=0.25,
+            edge_inset_px=5,
+        )
+
+        self.assertFalse(used_fallback_no_inset)
+        self.assertFalse(used_fallback_inset)
+        self.assertGreater(bbox_inset[0], bbox_no_inset[0])
+        self.assertGreater(bbox_inset[1], bbox_no_inset[1])
+        self.assertLess(bbox_inset[2], bbox_no_inset[2])
+        self.assertLess(bbox_inset[3], bbox_no_inset[3])
 
     def test_crop_bbox_fallback_to_full_image_when_empty_or_tiny(self) -> None:
         dark = Image.new("L", (200, 100), color=10).convert("RGB")
