@@ -274,5 +274,3 @@ Run the minimal unit tests:
 ```powershell
 python -m unittest discover -s tests -p "test_*.py"
 ```
-toolchain rather than three separate hobby projects.
-```
