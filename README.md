@@ -9,11 +9,11 @@ Optional thin UI wrapper: `pdf-toolkit-obsidian-plugin`
 
 ---
 
-## Why this exists (implementation lens)
+## Why this exists
 
-In real workflows, PDF handling turns into “death by a thousand paper cuts”: rotate a few pages, split a big file, render to images, crop borders, split spreads, name files consistently, and leave a trail that someone else can reproduce.
+This started as a local-first alternative to subscription PDF tooling and untrusted freeware. I wanted a small, offline CLI pipeline for preparing scanned PDFs into OCR-ready page images (rotate, render, crop, split spreads) with deterministic outputs.
 
-This tool is meant to make that workflow:
+This tool will also make workflows:
 - **Predictable** (deterministic naming + config precedence)
 - **Safe** (explicit overwrite, dry-run, clear output locations)
 - **Hand-off friendly** (JSON manifest records inputs/options/outputs/actions)
