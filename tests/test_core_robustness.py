@@ -99,6 +99,7 @@ class ManifestStructureTests(unittest.TestCase):
             inputs={"pdf": "in.pdf"},
             outputs={"out_dir": "out"},
             dry_run=True,
+            console_stream=io.StringIO(),
         )
         recorder.log("hello")
         recorder.add_action("render_page", "dry-run", page=1, output="out/p1.png")
@@ -123,6 +124,7 @@ class ManifestStructureTests(unittest.TestCase):
                 inputs={},
                 outputs={},
                 dry_run=True,
+                console_stream=io.StringIO(),
             )
             recorder.write_manifest(out_path, {"ok": True})
             self.assertFalse(out_path.exists())

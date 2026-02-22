@@ -5,18 +5,18 @@ Unit tests for page-images YAML config loading and precedence.
 from __future__ import annotations
 
 import importlib
-import io
 import shutil
 import sys
 from pathlib import Path
 import unittest
 from contextlib import contextmanager
-from contextlib import redirect_stderr, redirect_stdout
 from uuid import uuid4
 
 SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
+
+from helpers_cli import capture_output, run_pdf_toolkit_cli
 
 cli_mod = importlib.import_module("pdf-toolkit.cli")
 _command_argv_for_manifest = cli_mod._command_argv_for_manifest
@@ -25,7 +25,6 @@ _build_parser = cli_mod._build_parser
 _extract_page_images_section = cli_mod._extract_page_images_section
 _require_bool = cli_mod._require_bool
 _verbosity_from_args = cli_mod._verbosity_from_args
-main = cli_mod.main
 
 config_mod = importlib.import_module("pdf-toolkit.config")
 DEFAULT_PAGE_IMAGES = config_mod.DEFAULT_PAGE_IMAGES
@@ -117,13 +116,10 @@ class PageImagesConfigTests(unittest.TestCase):
     def test_dump_default_config_without_paths(self) -> None:
         if yaml_module is None:
             self.skipTest("PyYAML is required for YAML config tests.")
-        stream = io.StringIO()
-        with redirect_stdout(stream):
-            rc = main(["page-images", "--dump-default-config"])
+        rc, stdout_text, _ = run_pdf_toolkit_cli(["page-images", "--dump-default-config"])
         self.assertEqual(rc, 0)
-        dumped = stream.getvalue()
-        self.assertIn("page_images:", dumped)
-        self.assertNotIn("page_numbers:", dumped)
+        self.assertIn("page_images:", stdout_text)
+        self.assertNotIn("page_numbers:", stdout_text)
 
     def test_require_bool_accepts_true_false_only(self) -> None:
         self.assertTrue(_require_bool(True, "config.debug"))
@@ -156,21 +152,19 @@ class PageImagesConfigTests(unittest.TestCase):
                 "  overwrite: 'false'\n",
                 encoding="utf-8",
             )
-            err = io.StringIO()
-            with redirect_stderr(err):
-                rc = main(
-                    [
-                        "page-images",
-                        "--in_dir",
-                        "in",
-                        "--out_dir",
-                        "out",
-                        "--config",
-                        str(path),
-                    ]
-                )
+            rc, _, stderr_text = run_pdf_toolkit_cli(
+                [
+                    "page-images",
+                    "--in_dir",
+                    "in",
+                    "--out_dir",
+                    "out",
+                    "--config",
+                    str(path),
+                ]
+            )
             self.assertEqual(rc, 2)
-            self.assertIn("config.overwrite must be true or false.", err.getvalue())
+            self.assertIn("config.overwrite must be true or false.", stderr_text)
 
     def test_global_quiet_and_verbose_flags(self) -> None:
         parser = _build_parser()
@@ -191,20 +185,21 @@ class PageImagesConfigTests(unittest.TestCase):
 
     def test_global_quiet_and_verbose_are_mutually_exclusive(self) -> None:
         parser = _build_parser()
-        with self.assertRaises(SystemExit):
-            parser.parse_args(
-                [
-                    "--quiet",
-                    "--verbose",
-                    "split",
-                    "--pdf",
-                    "in.pdf",
-                    "--out_dir",
-                    "out",
-                    "--ranges",
-                    "1-1",
-                ]
-            )
+        with capture_output():
+            with self.assertRaises(SystemExit):
+                parser.parse_args(
+                    [
+                        "--quiet",
+                        "--verbose",
+                        "split",
+                        "--pdf",
+                        "in.pdf",
+                        "--out_dir",
+                        "out",
+                        "--ranges",
+                        "1-1",
+                    ]
+                )
 
 
 if __name__ == "__main__":
