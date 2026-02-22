@@ -1,16 +1,36 @@
-# PDF Toolkit (Local Windows CLI or Obsidian Plugin)
+# PDF Toolkit (offline CLI + optional Obsidian UI)
 
-Small, local, lightweight PDF utility CLI for Windows. Everything runs offline
-once dependencies are installed.
-Front-end through Obsidian plugin availible at https://github.com/duck-lint/pdf-toolkit-obsidian-plugin
+A small, local PDF utility for **repeatable document prep workflows** (especially “scan → images → OCR-ready page images”). Built to be **CLI-first**, **safe by default**, and **auditable** via per-command JSON manifests.
 
-Features:
+This project is intentionally lightweight: once dependencies are installed, it runs fully offline.
+
+Optional thin UI wrapper: `pdf-toolkit-obsidian-plugin`
+(keeps the CLI as the contract; the plugin just calls the commands).
+
+---
+
+## Why this exists (implementation lens)
+
+In real workflows, PDF handling turns into “death by a thousand paper cuts”: rotate a few pages, split a big file, render to images, crop borders, split spreads, name files consistently, and leave a trail that someone else can reproduce.
+
+This tool is meant to make that workflow:
+- **Predictable** (deterministic naming + config precedence)
+- **Safe** (explicit overwrite, dry-run, clear output locations)
+- **Hand-off friendly** (JSON manifest records inputs/options/outputs/actions)
+- **Easy to integrate** (CLI contract usable by scripts or a thin UI wrapper)
+
+---
+
+## Features
+
 - Render PDF pages to PNGs (PyMuPDF)
 - Split a PDF into multiple PDFs
 - Rotate PDF pages or rotate PNGs (Pillow)
-- Split spread scans into single-page images and crop page bounds (Pillow)
+- Prepare “page-images”: split spread scans into single pages + crop page bounds (Pillow)
 - Safe defaults with `--dry-run` and `--overwrite`
-- JSON manifest written for each command
+- JSON manifest written for each command (inputs/options/outputs + action log)
+
+---
 
 ## Install (Windows)
 
@@ -19,15 +39,15 @@ Features:
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-```
+````
 
-2) Install dependencies:
+2. Install dependencies:
 
 ```powershell
 pip install -r requirements.txt
 ```
 
-3) Install this package in editable mode so `python -m pdf-toolkit` works:
+3. Install in editable mode so `python -m pdf-toolkit` works:
 
 ```powershell
 pip install -e .
@@ -39,13 +59,32 @@ If you prefer not to install it, you can temporarily set `PYTHONPATH`:
 $env:PYTHONPATH = "src"
 ```
 
-## Usage
+---
+
+## Quickstart
 
 See all commands:
 
 ```powershell
 python -m pdf-toolkit --help
 ```
+
+Recommended pipeline (typical scan/OCR prep):
+
+```text
+render -> page-images
+```
+
+Example:
+
+```powershell
+python -m pdf-toolkit render --pdf "in.pdf" --out_dir "out\pages" --dpi 300 --format png --prefix "book"
+python -m pdf-toolkit page-images --in_dir "out\pages" --out_dir "out\pages_single" --glob "*.png" --mode auto --debug
+```
+
+---
+
+## Commands
 
 ### Render PDF to PNG
 
@@ -61,6 +100,8 @@ python -m pdf-toolkit render --pdf "in.pdf" --out_dir "out\pages" --pages "1-10,
 
 Output naming is predictable:
 `book1_p0001.png`, `book1_p0002.png`, etc.
+
+---
 
 ### Split PDF
 
@@ -79,6 +120,8 @@ python -m pdf-toolkit split --pdf "in.pdf" --out_dir "out\splits" --pages_per_fi
 Outputs:
 `book_part01.pdf`, `book_part02.pdf`, etc.
 
+---
+
 ### Rotate PDF pages
 
 ```powershell
@@ -91,6 +134,8 @@ In-place (overwrites input):
 python -m pdf-toolkit rotate pdf --pdf "in.pdf" --out_pdf "in.pdf" --degrees 180 --pages "1-5" --inplace --overwrite
 ```
 
+---
+
 ### Rotate PNGs in a folder
 
 ```powershell
@@ -102,6 +147,8 @@ In-place (overwrites files):
 ```powershell
 python -m pdf-toolkit rotate images --in_dir "out\pages" --glob "*.png" --degrees 90 --out_dir "out\pages" --inplace --overwrite
 ```
+
+---
 
 ### Page-images (split spreads + crop)
 
@@ -123,9 +170,10 @@ Never split (crop-only):
 python -m pdf-toolkit page-images --in_dir "out\pages" --out_dir "out\pages_single" --mode crop
 ```
 
-Useful page-images tuning flags:
-- `--gutter_trim_px`: shave pixels from both sides of the detected gutter when splitting spreads.
-- `--edge_inset_px`: inset the final padded crop box inward to remove faint border noise.
+Useful tuning flags:
+
+* `--gutter_trim_px`: shave pixels from both sides of the detected gutter when splitting spreads
+* `--edge_inset_px`: inset the final padded crop box inward to remove faint border noise
 
 Example with both knobs:
 
@@ -133,7 +181,9 @@ Example with both knobs:
 python -m pdf-toolkit page-images --in_dir "out\pages" --out_dir "out\pages_single" --mode split --gutter_trim_px 20 --edge_inset_px 6 --debug
 ```
 
-### Page-images YAML config
+---
+
+## Page-images YAML config
 
 Dump the default YAML config:
 
@@ -148,7 +198,10 @@ python -m pdf-toolkit page-images --in_dir "out\pages" --out_dir "out\pages_sing
 ```
 
 Precedence is deterministic:
-`built-in defaults < YAML config < explicitly provided CLI flags`.
+
+```text
+built-in defaults < YAML config < explicitly provided CLI flags
+```
 
 This means optional CLI defaults do not overwrite YAML values unless the flag is explicitly passed.
 
@@ -174,52 +227,52 @@ page_images:
   min_area_frac: 0.25
 ```
 
-Recommended pipeline:
-`render -> page-images`
+---
 
 ## Page selection format
 
 Pages are 1-based for user input:
-- `all`
-- `1-10`
-- `1-10,15,20-25`
 
-## Manifest output
+* `all`
+* `1-10`
+* `1-10,15,20-25`
+
+---
+
+## Manifest output (audit trail)
 
 Each command writes a JSON manifest describing:
-- Inputs, outputs, options
-- Actions taken (written, skipped, dry-run)
-- Timestamps
 
-`page-images` action outputs list the written files, plus split/crop metadata (`gutter_x`, bboxes, spread detection notes).
+* Inputs, outputs, options
+* Actions taken (written, skipped, dry-run)
+* Timestamps and logs
+
+`page-images` action outputs list written files, plus split/crop metadata (e.g., `gutter_x`, bboxes, spread detection notes).
+
+Example output list:
 
 ```json
 ["out/pages_single/book_p0001_L.png", "out/pages_single/book_p0001_R.png"]
 ```
 
 By default the manifest is written to:
-- Render: `out_dir\manifest.json`
-- Split: `out_dir\manifest.json`
-- Rotate PDF: `out_pdf` folder\manifest.json
-- Rotate images: `out_dir\manifest.json`
-- Page-images: `out_dir\manifest.json`
 
-`--dry-run` skips writing the manifest (it is treated like an output file).
+* Render: `out_dir\manifest.json`
+* Split: `out_dir\manifest.json`
+* Rotate PDF: `out_pdf` folder `\manifest.json`
+* Rotate images: `out_dir\manifest.json`
+* Page-images: `out_dir\manifest.json`
 
-## Testing (lightweight)
+Note: `--dry-run` skips writing the manifest (it is treated like an output file).
+
+---
+
+## Testing
 
 Run the minimal unit tests:
 
 ```powershell
 python -m unittest discover -s tests -p "test_*.py"
 ```
-
-## Create a clean zip
-
-Prefer creating release zips from git history:
-
-```powershell
-git archive --format=zip --output pdf-toolkit.zip HEAD
+toolchain rather than three separate hobby projects.
 ```
-
-If you zip manually, delete `__pycache__/` folders and `*.pyc` files first.
