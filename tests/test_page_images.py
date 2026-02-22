@@ -80,6 +80,15 @@ def _make_partial_height_outer_bar_page(side: str = "left", bar_px: int = 16) ->
     return image.convert("RGB")
 
 
+def _make_large_outer_bar_page(width: int = 1000, height: int = 600, bar_px: int = 200) -> Image.Image:
+    """Create a large white page with a solid black bar at the left edge."""
+
+    image = Image.new("L", (width, height), color=255)
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((0, 0, bar_px - 1, height - 1), fill=0)
+    return image.convert("RGB")
+
+
 @unittest.skipIf(
     Image is None
     or detect_gutter_x is None
@@ -358,6 +367,57 @@ class PageImageHeuristicsTests(unittest.TestCase):
             is_left_page=True,
         )
         self.assertGreater(applied_banded, applied_no_band)
+
+    def test_auto_mode_max_clamp_reachable_when_max_exceeds_search(self) -> None:
+        page = _make_large_outer_bar_page(width=1000, height=600, bar_px=200)
+        debug_info: dict[str, int | float | str] = {}
+        detected, applied = resolve_outer_clamp_px(
+            image=page,
+            outer_margin_mode="auto",
+            outer_margin_frac=0.0,
+            outer_margin_auto_max_frac=0.25,
+            outer_margin_auto_search_frac=0.18,
+            outer_margin_auto_y0_frac=0.10,
+            outer_margin_auto_y1_frac=0.90,
+            outer_margin_dark_threshold=80,
+            outer_margin_dark_frac_cutoff=0.60,
+            outer_margin_release_frac=0.35,
+            outer_margin_min_run_px=12,
+            outer_margin_pad_px=0,
+            is_left_page=True,
+            outer_clamp_debug=debug_info,
+        )
+        self.assertGreaterEqual(detected, 200)
+        self.assertGreaterEqual(applied, 200)
+        self.assertLessEqual(applied, 250)
+        self.assertAlmostEqual(float(debug_info["search_frac_config"]), 0.18)
+        self.assertAlmostEqual(float(debug_info["search_frac_effective"]), 0.25)
+        self.assertEqual(int(debug_info["search_width_px"]), 250)
+
+    def test_auto_mode_keeps_search_when_max_not_above_search(self) -> None:
+        page = _make_large_outer_bar_page(width=1000, height=600, bar_px=200)
+        debug_info: dict[str, int | float | str] = {}
+        detected, applied = resolve_outer_clamp_px(
+            image=page,
+            outer_margin_mode="auto",
+            outer_margin_frac=0.0,
+            outer_margin_auto_max_frac=0.15,
+            outer_margin_auto_search_frac=0.18,
+            outer_margin_auto_y0_frac=0.10,
+            outer_margin_auto_y1_frac=0.90,
+            outer_margin_dark_threshold=80,
+            outer_margin_dark_frac_cutoff=0.60,
+            outer_margin_release_frac=0.35,
+            outer_margin_min_run_px=12,
+            outer_margin_pad_px=0,
+            is_left_page=True,
+            outer_clamp_debug=debug_info,
+        )
+        self.assertEqual(detected, 180)
+        self.assertEqual(applied, 150)
+        self.assertAlmostEqual(float(debug_info["search_frac_config"]), 0.18)
+        self.assertAlmostEqual(float(debug_info["search_frac_effective"]), 0.18)
+        self.assertEqual(int(debug_info["search_width_px"]), 180)
 
     def test_symmetry_match_max_width_equalizes_widths(self) -> None:
         left_bbox, right_bbox, note = apply_split_symmetry_strategy(

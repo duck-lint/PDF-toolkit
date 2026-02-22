@@ -276,10 +276,23 @@ def _resolve_outer_clamp_px(
     outer_margin_min_run_px: int,
     outer_margin_pad_px: int,
     is_left_page: bool,
+    outer_clamp_debug: Optional[Dict[str, int | float | str]] = None,
 ) -> Tuple[int, int]:
     """Resolve detected bar width and applied outer clamp width."""
 
     width, _ = image.size
+    config_search_frac = float(outer_margin_auto_search_frac)
+    if outer_margin_mode == "auto":
+        effective_search_frac = max(config_search_frac, float(outer_margin_auto_max_frac))
+    else:
+        effective_search_frac = config_search_frac
+    effective_search_frac = min(0.5, max(effective_search_frac, 0.01))
+    search_width_px = max(1, min(width, int(width * effective_search_frac)))
+    if outer_clamp_debug is not None:
+        outer_clamp_debug["search_frac_config"] = config_search_frac
+        outer_clamp_debug["search_frac_effective"] = float(effective_search_frac)
+        outer_clamp_debug["search_width_px"] = int(search_width_px)
+
     if outer_margin_mode == "off":
         return 0, 0
     if outer_margin_mode == "fixed":
@@ -289,7 +302,7 @@ def _resolve_outer_clamp_px(
     detected_bar_px = detect_outer_black_bar_px(
         image,
         side=side,
-        search_frac=outer_margin_auto_search_frac,
+        search_frac=effective_search_frac,
         dark_threshold=outer_margin_dark_threshold,
         dark_frac_cutoff=outer_margin_dark_frac_cutoff,
         release_frac=outer_margin_release_frac,
@@ -373,6 +386,7 @@ def find_crop_bbox(
         outer_margin_min_run_px=outer_margin_min_run_px,
         outer_margin_pad_px=outer_margin_pad_px,
         is_left_page=is_left_page,
+        outer_clamp_debug=outer_clamp_debug,
     )
     if outer_clamp_debug is not None:
         outer_clamp_debug["mode"] = outer_margin_mode
@@ -838,6 +852,13 @@ def page_images_in_folder(
                 bbox_delta_width = abs(left_width - right_width)
                 if debug:
                     if left_outer_info is not None:
+                        left_search_cfg = float(left_outer_info.get("search_frac_config", 0.0))
+                        left_search_eff = float(left_outer_info.get("search_frac_effective", 0.0))
+                        if left_search_eff > left_search_cfg:
+                            print(
+                                "[DEBUG] auto outer clamp: bumped search_frac "
+                                f"from {left_search_cfg} -> {left_search_eff} to match max clamp"
+                            )
                         print(
                             f"[DEBUG] outer_clamp side=left mode={left_outer_info.get('mode', 'off')} "
                             f"detected_bar_px={left_outer_info.get('detected_bar_px', 0)} "
@@ -846,6 +867,13 @@ def page_images_in_folder(
                             f"y1={left_outer_info.get('detect_y1_frac', outer_margin_auto_y1_frac)}"
                         )
                     if right_outer_info is not None:
+                        right_search_cfg = float(right_outer_info.get("search_frac_config", 0.0))
+                        right_search_eff = float(right_outer_info.get("search_frac_effective", 0.0))
+                        if right_search_eff > right_search_cfg:
+                            print(
+                                "[DEBUG] auto outer clamp: bumped search_frac "
+                                f"from {right_search_cfg} -> {right_search_eff} to match max clamp"
+                            )
                         print(
                             f"[DEBUG] outer_clamp side=right mode={right_outer_info.get('mode', 'off')} "
                             f"detected_bar_px={right_outer_info.get('detected_bar_px', 0)} "
@@ -882,6 +910,13 @@ def page_images_in_folder(
                 notes.extend(crop_notes)
                 produced_images = [cropped]
                 if debug and crop_outer_info is not None:
+                    single_search_cfg = float(crop_outer_info.get("search_frac_config", 0.0))
+                    single_search_eff = float(crop_outer_info.get("search_frac_effective", 0.0))
+                    if single_search_eff > single_search_cfg:
+                        print(
+                            "[DEBUG] auto outer clamp: bumped search_frac "
+                            f"from {single_search_cfg} -> {single_search_eff} to match max clamp"
+                        )
                     print(
                         f"[DEBUG] outer_clamp side=single mode={crop_outer_info.get('mode', 'off')} "
                         f"detected_bar_px={crop_outer_info.get('detected_bar_px', 0)} "
@@ -960,6 +995,24 @@ def page_images_in_folder(
                     "left": int(left_outer_info.get("applied_clamp_px", 0)),
                     "right": int(right_outer_info.get("applied_clamp_px", 0)),
                 }
+                action_details["outer_search_frac_config"] = {
+                    "left": float(left_outer_info.get("search_frac_config", outer_margin_auto_search_frac)),
+                    "right": float(
+                        right_outer_info.get("search_frac_config", outer_margin_auto_search_frac)
+                    ),
+                }
+                action_details["outer_search_frac_effective"] = {
+                    "left": float(
+                        left_outer_info.get("search_frac_effective", outer_margin_auto_search_frac)
+                    ),
+                    "right": float(
+                        right_outer_info.get("search_frac_effective", outer_margin_auto_search_frac)
+                    ),
+                }
+                action_details["outer_search_width_px"] = {
+                    "left": int(left_outer_info.get("search_width_px", 0)),
+                    "right": int(right_outer_info.get("search_width_px", 0)),
+                }
                 action_details["outer_detect_y0_frac"] = float(
                     left_outer_info.get("detect_y0_frac", outer_margin_auto_y0_frac)
                 )
@@ -972,6 +1025,15 @@ def page_images_in_folder(
                 )
                 action_details["outer_applied_clamp_px"] = int(
                     crop_outer_info.get("applied_clamp_px", 0)
+                )
+                action_details["outer_search_frac_config"] = float(
+                    crop_outer_info.get("search_frac_config", outer_margin_auto_search_frac)
+                )
+                action_details["outer_search_frac_effective"] = float(
+                    crop_outer_info.get("search_frac_effective", outer_margin_auto_search_frac)
+                )
+                action_details["outer_search_width_px"] = int(
+                    crop_outer_info.get("search_width_px", 0)
                 )
                 action_details["outer_detect_y0_frac"] = float(
                     crop_outer_info.get("detect_y0_frac", outer_margin_auto_y0_frac)
